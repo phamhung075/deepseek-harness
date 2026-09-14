@@ -13,6 +13,7 @@ import type {
   SessionFormatJsonObject,
   SessionFormatJsonValue,
   SessionFormatMigrationContext,
+  SessionFormatDecodeAnchor,
   SessionFormatRecovery,
 } from '@deepseek-ai/dsh-session-format'
 import { assertReleasedSessionFormatHeader } from './validation.ts'
@@ -51,9 +52,13 @@ function createReleasedCodec(version: 0 | 1) {
   return Object.freeze({
     version,
     decodeHeader: (value: unknown) => decodeHeader(value, version),
-    createDecoder(headerValue: unknown, recovery: SessionFormatRecovery) {
+    createDecoder(
+      headerValue: unknown,
+      recovery: SessionFormatRecovery,
+      anchor?: SessionFormatDecodeAnchor,
+    ) {
       const physical = decodePhysicalHeader(headerValue, version)
-      const scanner = scanRows(recovery === 'recoverable')
+      const scanner = scanRows(recovery === 'recoverable', anchor !== undefined, anchor?.startEventCount)
       return {
         header: physical.header,
         headerInheritedEventCount: physical.inheritedEventCount,
@@ -69,6 +74,8 @@ function createReleasedCodec(version: 0 | 1) {
 
 function scanRows(
   recoverable: boolean,
+  fragment: boolean,
+  startEventCount?: number,
 ): {
   decodeRow(
     rowValue: unknown,
@@ -77,7 +84,9 @@ function scanRows(
   finish(inheritedEventCount: number): void
 } {
   let rowIndex = 0
-  let eventCount = 0
+  // A whole-artifact decode starts at the first event; a fragment resumes where
+  // the caller says, or adopts the first row it is handed.
+  let eventCount = fragment ? startEventCount : 0
   let issue: SessionFormatError | undefined
   return {
     decodeRow(rowValue, context) {
@@ -109,7 +118,8 @@ function scanRows(
       const seq = packed
         ? (decoded as ReleasedAssistantChunkRun).firstSeq
         : (decoded as SessionFormatEvent).seq
-      if (seq !== eventCount) {
+      // Without a counted prefix the first row establishes where this decode starts.
+      if (eventCount !== undefined && seq !== eventCount) {
         const gap = new SessionFormatError(
           `released Session row ${currentRow} has seq gap (expected ${eventCount}, got ${seq})`,
         )
@@ -118,6 +128,7 @@ function scanRows(
         if (!packed && (decoded as SessionFormatEvent).type === 'turn/end') throw gap
         return
       }
+      eventCount ??= seq
       if (packed) {
         const run = decoded as ReleasedAssistantChunkRun
         eventCount += run.eventCount
@@ -128,7 +139,8 @@ function scanRows(
       }
     },
     finish(inheritedEventCount) {
-      if (inheritedEventCount > eventCount) {
+      // A fragment's count covers appended rows only, so the prefix's cut says nothing about it.
+      if (!fragment && inheritedEventCount > (eventCount ?? 0)) {
         throw new SessionFormatError('Session inheritedEventCount exceeds its event count')
       }
     },

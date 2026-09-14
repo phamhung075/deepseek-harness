@@ -255,4 +255,92 @@ describe('first-party Session format catalog', () => {
 
     expect(() => stream.finish()).toThrow(/open turn/)
   })
+
+  it('decodes rows from an anchor without re-reading the prefix they continue', () => {
+    const header = {
+      type: 'session', version: 3, id: 'anchored', createdAt: 1, isSeeded: false, delegationDepth: 0,
+    }
+    const rows = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+      { type: 'feedback/record', seq: 2, time: 3, data: { text: 'tail' } },
+      { type: 'feedback/record', seq: 3, time: 4, data: { text: 'later' } },
+    ]
+    const whole = sessionFormatCatalog.createRestore(header, { recovery: 'strict', validation: 'current' })
+    for (const row of rows) whole.decodeRow(row)
+    const complete = whole.finish()
+
+    const fragment = sessionFormatCatalog.createRestore(header, {
+      recovery: 'strict',
+      validation: 'current',
+      anchor: { startEventCount: 2 },
+    })
+    fragment.decodeRow(rows[2])
+    fragment.decodeRow(rows[3])
+
+    expect(fragment.finish()).toEqual({
+      header: { version: 3, id: 'anchored', createdAt: 1, isSeeded: false, delegationDepth: 0 },
+      inheritedEventCount: complete.inheritedEventCount,
+      events: complete.events.slice(2),
+    })
+  })
+
+  it('lets an anchor without a counted prefix adopt the first decoded row', () => {
+    const header = {
+      type: 'session', version: 3, id: 'anchored-open', createdAt: 1, isSeeded: false, delegationDepth: 0,
+    }
+    const fragment = sessionFormatCatalog.createRestore(header, {
+      recovery: 'strict',
+      validation: 'current',
+      anchor: {},
+    })
+    fragment.decodeRow({ type: 'feedback/record', seq: 5, time: 1, data: { text: 'first seen' } })
+    fragment.decodeRow({ type: 'feedback/record', seq: 6, time: 2, data: { text: 'next' } })
+
+    expect(fragment.finish().events).toEqual([
+      { type: 'feedback/record', seq: 5, time: 1, data: { text: 'first seen' } },
+      { type: 'feedback/record', seq: 6, time: 2, data: { text: 'next' } },
+    ])
+  })
+
+  it('decodes a seeded fragment whose inherited end-seed row stayed in the prefix', () => {
+    const header = {
+      type: 'session', version: 3, id: 'anchored-seeded', createdAt: 1, isSeeded: true, delegationDepth: 0,
+    }
+    const fragment = sessionFormatCatalog.createRestore(header, {
+      recovery: 'strict',
+      validation: 'current',
+      anchor: { startEventCount: 4 },
+    })
+    fragment.decodeRow({ type: 'feedback/record', seq: 4, time: 1, data: { text: 'appended' } })
+
+    expect(fragment.finish().events).toEqual([
+      { type: 'feedback/record', seq: 4, time: 1, data: { text: 'appended' } },
+    ])
+  })
+
+  it('refuses an anchored decode whose first row restarts or skips the counted prefix', () => {
+    const header = {
+      type: 'session', version: 3, id: 'anchored-gap', createdAt: 1, isSeeded: false, delegationDepth: 0,
+    }
+    const restore = sessionFormatCatalog.createRestore(header, {
+      recovery: 'strict',
+      validation: 'current',
+      anchor: { startEventCount: 2 },
+    })
+
+    expect(() => {
+      restore.decodeRow({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } })
+    }).toThrow(/seq gap \(expected 2, got 0\)/)
+  })
+
+  it('refuses an anchored decode of a stored format that must be read from its first row', () => {
+    expect(() => sessionFormatCatalog.createRestore({
+      type: 'session', version: 2, id: 'anchored-v2', createdAt: 1, isSeeded: false, delegationDepth: 0,
+    }, {
+      recovery: 'strict',
+      validation: 'current',
+      anchor: { startEventCount: 2 },
+    })).toThrow(/anchored decode requires current format v3; stored v2/)
+  })
 })

@@ -4,6 +4,7 @@ import { SessionFormatError, isSessionFormatJsonObject, snapshotSessionFormatJso
 import type {
   SessionFormatCodec,
   SessionFormatCurrentEncoder,
+  SessionFormatDecodeAnchor,
   SessionFormatEvent,
   SessionFormatHeader,
 } from '@deepseek-ai/dsh-session-format'
@@ -17,8 +18,8 @@ export const releasedV3SessionFormatCodec = Object.freeze({
   decodeHeader(value: unknown) {
     return { ...releasedV2SessionFormatCodec.decodeHeader(v2PhysicalHeader(value)), version: 3 }
   },
-  createDecoder(value, recovery) {
-    const decoder = releasedV2SessionFormatCodec.createDecoder(v2PhysicalHeader(value), recovery)
+  createDecoder(value, recovery, anchor?: SessionFormatDecodeAnchor) {
+    const decoder = releasedV2SessionFormatCodec.createDecoder(v2PhysicalHeader(value), recovery, anchor)
     let issue: SessionFormatError | undefined
     let acceptedInheritedCut: number | undefined
     return {
@@ -51,10 +52,11 @@ export const releasedV3SessionFormatCodec = Object.freeze({
       },
       finish(context) {
         if (issue === undefined) return decoder.finish(context)
-        if (decoder.header.isSeeded && acceptedInheritedCut === undefined) {
+        // A fragment never contains the end-seed row that established the prefix's cut.
+        if (anchor === undefined && decoder.header.isSeeded && acceptedInheritedCut === undefined) {
           throw new SessionFormatError('format v3 seeded Session lacks an accepted inherited end-seed marker')
         }
-        if (!decoder.header.isSeeded && acceptedInheritedCut !== undefined) {
+        if (anchor === undefined && !decoder.header.isSeeded && acceptedInheritedCut !== undefined) {
           throw new SessionFormatError('format v3 unseeded Session contains an inherited end-seed marker')
         }
         return acceptedInheritedCut ?? 0

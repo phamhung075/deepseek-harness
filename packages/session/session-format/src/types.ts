@@ -90,13 +90,39 @@ export interface SessionFormatChain {
 /** Physical-row failure policy selected once for one restore. */
 export type SessionFormatRecovery = 'strict' | 'recoverable'
 
+/**
+ * Position a physical-row decode that continues an artifact whose prefix the
+ * caller already decoded. The fragment is validated row by row; the invariants
+ * that need the whole artifact — the inherited cut an end-seed row carries, and
+ * the artifact-wide restorer — stay with the owner of that prefix.
+ */
+export interface SessionFormatDecodeAnchor {
+  /**
+   * Logical events the preserved prefix contributed. The first decoded row must
+   * carry this seq, which is where the decoder's running count resumes. Omit it
+   * when the caller has not tracked the count yet: the first row then
+   * establishes where the fragment starts.
+   */
+  readonly startEventCount?: number
+}
+
 /** Pure physical JSON codec frozen with one released Session format. */
 export interface SessionFormatCodec {
   readonly version: number
   /** Decode one physical header into body-independent logical metadata. */
   decodeHeader(value: unknown): SessionFormatHeader
-  /** Create one row-at-a-time decoder with an explicit failure policy. */
-  createDecoder(headerValue: unknown, recovery: SessionFormatRecovery): SessionFormatArtifactDecoder
+  /**
+   * Create one row-at-a-time decoder with an explicit failure policy.
+   * @param headerValue - stored physical header record.
+   * @param recovery - whether a malformed row is withheld or refused.
+   * @param anchor - resume position for a decode of appended rows only.
+   * @returns a stateful decoder for the rows the caller feeds it.
+   */
+  createDecoder(
+    headerValue: unknown,
+    recovery: SessionFormatRecovery,
+    anchor?: SessionFormatDecodeAnchor,
+  ): SessionFormatArtifactDecoder
 }
 
 /** Stateful physical-row decoder used by streaming persistence restores. */
@@ -204,6 +230,12 @@ export interface SessionFormatRestoreOptions {
    * released current-format validation only after migration; current input receives only codec validation.
    */
   readonly validation: 'transformed' | 'current'
+  /**
+   * Resume this restore after a prefix the caller already decoded. An anchored
+   * restore accepts only current-version input, applies codec row validation
+   * instead of the artifact-wide restorer, and reports the fragment it decoded.
+   */
+  readonly anchor?: SessionFormatDecodeAnchor
 }
 
 /** Build-static physical dispatch and adjacent migration catalog. */

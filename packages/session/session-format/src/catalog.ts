@@ -126,7 +126,14 @@ export function createSessionFormatCatalog(options: SessionFormatCatalogOptions)
     restoreOptions: SessionFormatRestoreOptions,
   ): SessionFormatRestore {
     const { storedVersion, codec } = artifactCodec(headerValue)
-    const decoder = codec.createDecoder(headerValue, restoreOptions.recovery)
+    const anchor = restoreOptions.anchor
+    if (anchor !== undefined && storedVersion !== chain.currentVersion) {
+      throw new SessionFormatError(
+        `anchored decode requires current format v${chain.currentVersion}; stored v${storedVersion} must be decoded from its first row`,
+      )
+    }
+    const decoder = codec.createDecoder(headerValue, restoreOptions.recovery, anchor)
+    if (anchor !== undefined) return new AnchoredSessionFormatRestore(decoder)
     const sourceCut = decoder.headerInheritedEventCount
     if (storedVersion === chain.currentVersion) {
       return new CurrentSessionFormatRestore(
@@ -166,6 +173,34 @@ export function createSessionFormatCatalog(options: SessionFormatCatalogOptions)
 }
 
 type SessionFormatArtifactRestorer = (artifact: SessionFormatArtifact) => SessionFormatArtifact
+
+/**
+ * Restore of an artifact's appended rows only. The codec validates every row it
+ * is fed; artifact-wide invariants belong to the prefix the caller already
+ * decoded, so this restore reports the fragment without running the restorer.
+ * The cut it reports is the codec's fragment-level answer — the prefix's exact
+ * cut is not derivable without the end-seed row that established it.
+ */
+class AnchoredSessionFormatRestore implements SessionFormatRestore {
+  readonly header: SessionFormatArtifact['header']
+  private readonly collector = new SessionFormatEventCollector()
+
+  constructor(private readonly decoder: SessionFormatArtifactDecoder) {
+    this.header = decoder.header
+  }
+
+  decodeRow(rowValue: unknown): void {
+    this.decoder.decodeRow(rowValue, this.collector)
+  }
+
+  finish(): SessionFormatArtifact {
+    return {
+      header: this.header,
+      inheritedEventCount: this.decoder.finish(this.collector),
+      events: this.collector.values,
+    }
+  }
+}
 
 class CurrentSessionFormatRestore implements SessionFormatRestore {
   readonly header: SessionFormatArtifact['header']

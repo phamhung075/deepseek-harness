@@ -12,6 +12,7 @@ import type {
   SessionFormatHeader,
   SessionFormatJsonObject,
   SessionFormatJsonValue,
+  SessionFormatDecodeAnchor,
   SessionFormatRecovery,
 } from '@deepseek-ai/dsh-session-format'
 import { assertReleasedV2Header } from './validation.ts'
@@ -27,8 +28,8 @@ export const releasedV2SessionFormatCodec = Object.freeze({
   decodeHeader(value: unknown) {
     return decodePhysicalHeader(value)
   },
-  createDecoder(headerValue: unknown, recovery: SessionFormatRecovery) {
-    return createDecoder(headerValue, recovery)
+  createDecoder(headerValue: unknown, recovery: SessionFormatRecovery, anchor?: SessionFormatDecodeAnchor) {
+    return createDecoder(headerValue, recovery, anchor)
   },
   encodeHeader(header: SessionFormatHeader, inheritedEventCount: number) {
     return encodeHeader(header, inheritedEventCount)
@@ -75,10 +76,13 @@ function decodePhysicalHeader(value: unknown): SessionFormatHeader {
 function createDecoder(
   headerValue: unknown,
   recovery: SessionFormatRecovery,
+  anchor?: SessionFormatDecodeAnchor,
 ): SessionFormatArtifactDecoder {
   const header = decodePhysicalHeader(headerValue)
   let rowIndex = 0
-  let eventCount = 0
+  // A whole-artifact decode starts at the first event; a fragment resumes where
+  // the caller says, or adopts the first row it is handed.
+  let eventCount = anchor === undefined ? 0 : anchor.startEventCount
   let inheritedEventCount: number | undefined
   let issue: SessionFormatError | undefined
   return {
@@ -101,7 +105,8 @@ function createDecoder(
         if (event.type === 'turn/end') throw issue
         return
       }
-      if (event.seq !== eventCount) {
+      // Without a counted prefix the first row establishes where this decode starts.
+      if (eventCount !== undefined && event.seq !== eventCount) {
         const gap = new SessionFormatError(
           `released v2 row ${currentRow} has seq gap (expected ${eventCount}, got ${event.seq})`,
         )
@@ -110,7 +115,7 @@ function createDecoder(
         if (event.type === 'turn/end') throw issue
         return
       }
-      eventCount += 1
+      eventCount = event.seq + 1
       if (event.type === 'session/end-seed') {
         const data = jsonRecord(event.data, `session/end-seed ${event.seq} data`)
         if (data['inherited'] === true) inheritedEventCount = event.seq
@@ -118,10 +123,11 @@ function createDecoder(
       context.emitEvent(event)
     },
     finish(_context) {
-      if (header.isSeeded && inheritedEventCount === undefined) {
+      // A fragment never contains the end-seed row that established the prefix's cut.
+      if (anchor === undefined && header.isSeeded && inheritedEventCount === undefined) {
         throw new SessionFormatError('released v2 seeded Session lacks an inherited end-seed marker')
       }
-      if (!header.isSeeded && inheritedEventCount !== undefined) {
+      if (anchor === undefined && !header.isSeeded && inheritedEventCount !== undefined) {
         throw new SessionFormatError('released v2 unseeded Session contains an inherited end-seed marker')
       }
       return inheritedEventCount ?? 0
