@@ -38,6 +38,8 @@ import { SessionAssistantStreamAccumulator } from './assistant-stream.ts'
 const DEFAULT_MAX_MESSAGES = 50
 /** Safety-net cadence for following a session this process does not own; the append observer replaces it. */
 const FOREIGN_SESSION_POLL_MS = 1500
+/** Window after its last durable write in which a session this process does not run still reads as running. */
+const FOREIGN_SESSION_IDLE_MS = 20_000
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
@@ -140,6 +142,7 @@ export class SessionHistoryController {
     }
     const follower = { closed: false }
     let pollTimer: ReturnType<typeof setInterval> | undefined
+    let idleTimer: NodeJS.Timeout | undefined
     const close = (): void => {
       follower.closed = true
       notify()
@@ -219,6 +222,16 @@ export class SessionHistoryController {
       // FIXME(durable-append): the append observer replaces this read loop with
       // a tail of the bytes the writer added, so a long log is not re-read.
       let durableCursor = cursor
+      const markRunning = (): void => {
+        this.ctx.emit('api-session/status', target, true)
+        if (idleTimer !== undefined) clearTimeout(idleTimer)
+        // A writer that stops leaves no other signal, so the badge falls back to
+        // idle once its durable writes stop arriving.
+        idleTimer = setTimeout(() => {
+          idleTimer = undefined
+          this.ctx.emit('api-session/status', target, false)
+        }, FOREIGN_SESSION_IDLE_MS)
+      }
       const poll = (): void => {
         if (follower.closed || signal.aborted) return
         void this.sourceFor(address, signal, false).then((observation) => {
@@ -230,13 +243,11 @@ export class SessionHistoryController {
             observed = true
             buffered.pushBack({ type: 'event', event })
           }
-          if (observed) {
-            // A durable write is the only evidence that a session this Host does
-            // not run is alive: the Agent status bus never fires for a writer in
-            // another process.
-            // FIXME(durable-append): the durable-activity view owns this signal.
-            this.ctx.emit('api-session/status', target, true)
-          }
+          // A durable write is the only evidence that a session this Host does
+          // not run is alive: the Agent status bus never fires for a writer in
+          // another process.
+          // FIXME(durable-append): the durable-activity view owns this signal.
+          if (observed) markRunning()
           notify()
         }).catch((error: unknown) => {
           // The opening read already proved this address exists, so a failed
@@ -271,6 +282,7 @@ export class SessionHistoryController {
     } finally {
       if (pollTimer !== undefined) {
         clearInterval(pollTimer)
+        if (idleTimer !== undefined) clearTimeout(idleTimer)
         this.ctx.emit('api-session/status', target, false)
       }
       this.closeFollowers.delete(close)
