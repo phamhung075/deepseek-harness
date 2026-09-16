@@ -223,10 +223,19 @@ export class SessionHistoryController {
         if (follower.closed || signal.aborted) return
         void this.sourceFor(address, signal, false).then((observation) => {
           using owned = observation
+          let observed = false
           for (const event of owned.events) {
             if (event.seq <= durableCursor) continue
             durableCursor = event.seq
+            observed = true
             buffered.pushBack({ type: 'event', event })
+          }
+          if (observed) {
+            // A durable write is the only evidence that a session this Host does
+            // not run is alive: the Agent status bus never fires for a writer in
+            // another process.
+            // FIXME(durable-append): the durable-activity view owns this signal.
+            this.ctx.emit('api-session/status', target, true)
           }
           notify()
         }).catch((error: unknown) => {
@@ -260,7 +269,10 @@ export class SessionHistoryController {
         yield entryFor(item.event)
       }
     } finally {
-      if (pollTimer !== undefined) clearInterval(pollTimer)
+      if (pollTimer !== undefined) {
+        clearInterval(pollTimer)
+        this.ctx.emit('api-session/status', target, false)
+      }
       this.closeFollowers.delete(close)
       signal.removeEventListener('abort', onAbort)
       disposeCreated()
