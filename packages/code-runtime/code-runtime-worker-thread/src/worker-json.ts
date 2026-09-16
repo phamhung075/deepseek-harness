@@ -87,7 +87,8 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   try {
     return constructor.name === name
       && constructor.prototype === prototype
-      && intrinsicReflectApply(intrinsicFunctionToString, constructor, []) === `function ${name}() { [native code] }`
+      // Engines format native source differently, so collapse whitespace before comparing.
+      && (intrinsicReflectApply(intrinsicFunctionToString, constructor, []) as string).replace(/\s+/gu, ' ') === `function ${name}() { [native code] }`
   } catch {
     return false
   }
