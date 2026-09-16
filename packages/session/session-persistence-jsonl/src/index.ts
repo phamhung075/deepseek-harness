@@ -32,6 +32,8 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
+import { JsonlSessionAppends } from './appends.ts'
+import { JsonlSessionStreams } from './streams.ts'
 import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
@@ -64,6 +66,10 @@ export type { JsonlCompression } from './format.ts'
 const COLD_LOG_MEMO_MAX_ENTRIES = 2
 
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
+/** Safety-net poll cadence for the append observer and the live-frame channel; see `Config.watchPollIntervalMs`. */
+const DEFAULT_WATCH_POLL_INTERVAL_MS = 500
+/** Records one publishing Session buffers while a live-frame write is in flight; see `Config.streamPendingRecords`. */
+const DEFAULT_STREAM_PENDING_RECORDS = 512
 /**
  * Internal scheduling constant, not deployment configuration: balance
  * frame-boundary event-loop yields against `setImmediate` overhead. One frame
@@ -96,6 +102,21 @@ export interface Config {
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
+  /**
+   * Safety-net poll cadence in milliseconds for the append observer and the
+   * live-frame channel behind `ctx.sessionAppends` and `ctx.sessionStreams`. An
+   * append the platform file watcher reports is observed immediately; this
+   * interval bounds the wait when that watcher is silent or unavailable.
+   * Defaults to 500.
+   */
+  watchPollIntervalMs?: number
+  /**
+   * Maximum live-frame records one publishing Session buffers while a write is
+   * in flight. A frame arriving at the bound is dropped rather than growing
+   * memory without limit; the side channel is presentation data and the durable
+   * settlement remains the replay source. Defaults to 512.
+   */
+  streamPendingRecords?: number
 }
 
 /** One stored event graph whose producer has established immutable sharing. */
@@ -236,6 +257,8 @@ class JsonlSessionPersistence extends SessionPersistence {
   static Config: z<Config> = z.object({
     root: z.string().required(),
     compression: JsonlCompressionSchema,
+    watchPollIntervalMs: z.natural().default(DEFAULT_WATCH_POLL_INTERVAL_MS),
+    streamPendingRecords: z.natural().default(DEFAULT_STREAM_PENDING_RECORDS),
   })
 
   /** Backend label for diagnostics and effects; shadows `Service.name` without changing the service key. */
@@ -283,6 +306,20 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     this.assertUsableRoot()
     this.tracker.install(ctx)
+    // The durable-append observer rides this provider's storage layout: it
+    // resolves paths through the same lookup and decodes the same frames.
+    new JsonlSessionAppends(ctx, {
+      pollIntervalMs: config.watchPollIntervalMs ?? DEFAULT_WATCH_POLL_INTERVAL_MS,
+      compression: this.compression,
+      resolveLog: (id, signal) => this.resolveCurrentLog(id, signal),
+    })
+    // The live-frame side channel rides the same storage layout: it resolves
+    // paths through the same lookup and creates its file beside the artifact.
+    new JsonlSessionStreams(ctx, {
+      pollIntervalMs: config.watchPollIntervalMs ?? DEFAULT_WATCH_POLL_INTERVAL_MS,
+      maxPendingRecords: config.streamPendingRecords ?? DEFAULT_STREAM_PENDING_RECORDS,
+      resolveLog: (id, signal) => this.resolveCurrentLog(id, signal),
+    })
   }
 
   /**
@@ -444,6 +481,7 @@ class JsonlSessionPersistence extends SessionPersistence {
         header,
         revision: fileRevision(identity),
         sizeBytes: Number(identity.size),
+        lastModifiedAt: Number(identity.mtimeMs),
       }
     } catch (error: unknown) {
       options?.signal?.throwIfAborted()
@@ -476,6 +514,7 @@ class JsonlSessionPersistence extends SessionPersistence {
           header: artifact.header,
           revision: fileRevision(identity),
           sizeBytes: Number(identity.size),
+          lastModifiedAt: Number(identity.mtimeMs),
         })
       } catch (error: unknown) {
         signal?.throwIfAborted()

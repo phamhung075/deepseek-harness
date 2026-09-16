@@ -14,6 +14,15 @@ import type { SessionPersistenceRevision } from './revision.ts'
 // Re-export the metadata vocabulary so Consumers import it from the Service Definition.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
 export { SessionPersistenceRevision } from './revision.ts'
+export { SessionAppends } from './appends.ts'
+export type { SessionAppendSubscription, SessionAppendsWatchOptions } from './appends.ts'
+export { SessionStreams } from './streams.ts'
+export type {
+  SessionStreamRecord,
+  SessionStreamSink,
+  SessionStreamSubscription,
+  SessionStreamsWatchOptions,
+} from './streams.ts'
 export type {
   SessionAccess,
   SessionHandle,
@@ -56,6 +65,13 @@ export interface SessionPersistenceSnapshot {
   readonly eventCount?: number
   /** Physical artifact byte size, when the backend can provide it cheaply (JSONL); otherwise absent. */
   readonly sizeBytes?: number
+  /**
+   * Physical artifact modification time in Unix epoch milliseconds, when the
+   * backend can provide it cheaply; otherwise absent. It dates the last durable
+   * write, so a consumer can tell a session another process is still appending
+   * to from one that settled, and it is never derived from in-process state.
+   */
+  readonly lastModifiedAt?: number
 }
 
 /** Options for {@link SessionPersistence.create}. */

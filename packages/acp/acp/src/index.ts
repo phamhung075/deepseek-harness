@@ -79,6 +79,12 @@ export interface AcpConfig {
   model?: string
   /** Maximum summaries returned by one session/list page. */
   sessionListPageSize?: number
+  /**
+   * Whether this profile publishes each owned Session's live Assistant frames
+   * to the persistence provider's side channel beside the Session artifact.
+   * Defaults to true; a backend that registers no channel is silent either way.
+   */
+  publishAssistantStream?: boolean
   /** Runtime-only transport override; production uses stdio. */
   stream?: Stream
 }
@@ -87,6 +93,7 @@ export const Config: Schema<AcpConfig> = Schema.object({
   provider: Schema.string(),
   model: Schema.string(),
   sessionListPageSize: Schema.natural().min(1).default(DEFAULT_SESSION_LIST_PAGE_SIZE),
+  publishAssistantStream: Schema.boolean().default(true),
 })
 
 /**
@@ -98,6 +105,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // ACP handlers execute outside this plugin's injection scope, so capture the
   // injected service during apply rather than reading it lazily in a callback.
   const persistence = ctx.sessionPersistence
+  // The live-frame side channel is optional: a backend that cannot resolve a
+  // Session artifact registers no service, and this profile then publishes none.
+  const assistantStreams = config.publishAssistantStream === false ? undefined : ctx.get('sessionStreams')
   const logger = ctx.logger
   const sessionListPageSize = resolveSessionListPageSize(config.sessionListPageSize)
   const sessions = new Map<SessionId, AcpSession>()
@@ -135,6 +145,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
   ctx.on('session/event', (session, event) => {
     const record = sessions.get(session.header.id)
     if (record?.ownsSession(session) === true) record.onSessionEvent(session, event)
+  })
+
+  ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    ownedRecord(agent)?.publishAssistantFrame(frame)
   })
 
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
@@ -211,6 +225,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           fallbackSelection: initialSelection(config),
           signal,
           notify,
+          streams: assistantStreams,
         })
       } catch (error: unknown) {
         if (error instanceof AcpMcpConfigError) throw invalidParams(error.message)
@@ -262,6 +277,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             fallbackSelection: initialSelection(config),
             signal,
             notify,
+            streams: assistantStreams,
           })
         } catch (error: unknown) {
           if (error instanceof AcpMcpConfigError) throw invalidParams(error.message)

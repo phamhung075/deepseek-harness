@@ -37,6 +37,8 @@ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用�
 
 面向用户调用的 `skills/list` 元数据包含胜出提供方可选的指令文件 `path`。输入框可据此预览文件，无需加载每个 skill 的正文或激活冷态 Agent。
 
+本 Host 未持有的已存 Session 由其持久追加来报告：controller 观察在 `coldActivityIdleMs` 内被写入的产物（同时最多 `coldActivityMaxSessions` 个，每隔 `coldActivityPollMs` 重新检查一次），把 `turn/start` 与 `turn/end` 折叠为回合开启标记，并在每次转换时推送 `api-session/status`，因此另一进程正在运行的 Session 会显示为运行中，并在其持久回合关闭时落定。它的列表行携带该标记，而 `follow` 会在开场观察之前订阅 `ctx.sessionAppends`，从而流式传输此类 Session 的追加，使对话记录不会冻结在快照上。本 Host 持有的 Session 绝不以此方式报告：其列表行与状态来自 `ctx.agents`，其 follow 使用进程内事件总线。若部署的持久化后端未注册 `ctx.sessionAppends`，则无法报告持久活动，controller 会在首次尝试观察时警告一次。
+
 <a id="session-media-references"></a>
 ## 会话媒体引用
 
@@ -49,6 +51,9 @@ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用�
 
 | 字段 | 默认值 | 含义 |
 |---|---:|---|
+| `coldActivityPollMs` | `5,000` | 重新检查已存 Session 是否被另一进程持久追加的间隔 |
+| `coldActivityIdleMs` | `60,000` | 本 Host 未运行的 Session 在最后一次持久写入后仍报告运行中的窗口 |
+| `coldActivityMaxSessions` | `16` | 同时观察的此类 Session 上限 |
 | `nativeOpen` | 平台探测 | 是否能把 Session 工作区路径交给原生桌面打开器 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-session-controller)是所有受支持字段及其 JSDoc 的完整来源。

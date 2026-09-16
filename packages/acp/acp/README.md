@@ -47,8 +47,11 @@ Every session the server creates uses the provider and model configured here. Bo
 | `provider` | — | Provider route for every session's agent |
 | `model` | — | Model for every session's agent |
 | `sessionListPageSize` | `100` | Maximum summaries returned in one `session/list` page |
+| `publishAssistantStream` | `true` | Publish each owned session's live Assistant frames to the persistence provider's side channel beside its artifact |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-acp) is the exhaustive source for every accepted field and its JSDoc.
+
+Each owned session also publishes its live Assistant frames beside its artifact when the mounted persistence backend registers the optional `ctx.sessionStreams` capability, so a Host that did not start this process — the Web GUI following a delegated job — can stream the session's text instead of waiting for each settlement. The channel is presentation data: it is not part of the ACP wire, it carries nothing the durable log does not already embed at settlement, and `publishAssistantStream: false`, or a backend with no side channel, simply publishes nothing.
 
 ### Start a server
 

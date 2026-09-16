@@ -39,12 +39,16 @@ seam 随产品交付 [JSONL](../session-persistence-jsonl/README.zh.md) 后端�
 const handle = await ctx.sessionPersistence.create(header)     // store a new session, take write ownership
 const handle = await ctx.sessionPersistence.open(id, 'write')  // claim single-writer ownership of an existing session
 const reader = await ctx.sessionPersistence.open(id, 'read')   // observe without ownership
-const snap = await ctx.sessionPersistence.stat(id)             // header + revision (+ eventCount / sizeBytes) without a log read
+const snap = await ctx.sessionPersistence.stat(id)             // header + revision (+ eventCount / sizeBytes / lastModifiedAt) without a log read
 const all = await ctx.sessionPersistence.list()                // one snapshot per visible stored session
 await ctx.sessionPersistence.flush()                           // backend-wide durability barrier over every active write handle
 ```
 
 服务级 `flush()` 排空每个活跃写句柄已路由的事件并把其会话实体化，效果与各句柄自己的 `flush` 完全相同；失败按会话聚合为一个 `AggregateError` 而不中途放弃清扫，清扫途中被关闭的句柄视同已 flush，因为 close 本身会持久排空。
+
+后端还可以挂载可选的伴随能力 `ctx.sessionAppends`：其 `watch(id)` 返回一个由调用方持有的订阅，投递在该订阅建立之后变为持久的逻辑事件。它是 Host 察觉并流式读取另一个进程正在写入的会话所需的读取侧，消费者用 `ctx.get('sessionAppends')` 读取它：无法观察另一进程产物的后端不注册它。`stat` 与 `list` 快照在 `sizeBytes` 之外还携带可选的 `lastModifiedAt`（产物修改时间，Unix 纪元毫秒），因此消费者无需读取日志即可区分刚被写入的产物与已落定的产物。
+
+第二个可选伴随能力 `ctx.sessionStreams` 承载后端可以存放到产物旁的实时 Assistant frame：`publish(id)` 打开一个由发布方持有的 sink，用于追加已序列化的 frame；`watch(id)` 以与 `SessionAppends.watch` 跟踪事件相同的方式跟踪某个会话的 frame。它存在的原因是 `agent/assistant-stream` 是进程本地的，因此未运行该 Agent 的 Host 只有在 attempt 于持久日志中落定后才能看到文本。消费者用 `ctx.get('sessionStreams')` 读取它；没有旁路通道的后端不注册该服务，而两个定义都保持可选，因此没有提供方被要求实现它无法履行的能力。
 
 每一次日志读写都流经返回的 `SessionHandle`；不存在按 id 寻址的 append 或 load 方法。`handle.read(offset?, length?)` 返回 `{ eventState, events }`：外层 slice 属于调用方，`eventState` 则区分由调用方独占的 `detached` 事件图与可能同时位于后端缓存中的 `shared-frozen` 事件图。该状态由生成方确定，即使切片为空也会保留。两种状态都能直接接管而无需复制；需要可变事件的消费方必须先克隆事件。读取绝不包含撕裂尾部，同一句柄上的重复读取绝不会观察到比先前读取更旧的状态，写句柄也能读到自己成功的 append。`handle.append(events)` 追加一个连续批次，其第一个 `seq` 等于已存储 next-seq；完成时的持久化是尽力而为的——批次被接受、有序，并对同一后端实例上的读取可见，只有完成的 `flush` 才承诺它在崩溃后依然存在（交付的 JSONL 后端恰好会立即持久化每个批次）。`handle.flush()` 是持久性屏障，同时把空的已创建会话实体化，使其可被持久列出。`handle.close()` 幂等且不可取消：读句柄释放本地资源；写句柄完成待处理的持久化并释放写所有权。一旦某次 `append` 或 `flush` 完成，其后在同一后端实例上开始的读取——无论经由任何句柄，还是经由 `stat`/`list`——至少能观察到该前缀。
 
@@ -76,7 +80,7 @@ await ctx.sessionPersistence.flush()                           // backend-wide d
 
 ### 设计理念
 
-本包是 seam，而不是后端框架：它只导出抽象 `SessionPersistence` 服务、`SessionHandle` 约定、消费方捕获的稳定错误类、纯函数的存储记录校验辅助（`storage-contract`）以及带品牌类型的修订值——再无其他。每个提供方拥有自己完整的存储运行时（句柄类、修改排序、单写者记账、实时事件路由、拆卸），`tests/` 下的两套共享测试套件——`runPersistenceContract` 与 `runLiveWritePathContract`——固定所有提供方都必须一致的可观察行为。有意为之的后果：各提供方在存储恰好相似之处可以彼此相像，但没有任何实现机制跨越包边界。
+本包是 seam，而不是后端框架：它只导出抽象 `SessionPersistence` 服务、可选的 `SessionAppends` 与 `SessionStreams` 伴随定义、`SessionHandle` 约定、消费方捕获的稳定错误类、纯函数的存储记录校验辅助（`storage-contract`）以及带品牌类型的修订值——再无其他。每个提供方拥有自己完整的存储运行时（句柄类、修改排序、单写者记账、实时事件路由、拆卸），`tests/` 下的两套共享测试套件——`runPersistenceContract` 与 `runLiveWritePathContract`——固定所有提供方都必须一致的可观察行为。有意为之的后果：各提供方在存储恰好相似之处可以彼此相像，但没有任何实现机制跨越包边界。
 
 ### 每个后端必须遵守的不变量
 
@@ -93,6 +97,8 @@ await ctx.sessionPersistence.flush()                           // backend-wide d
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：抽象 `SessionPersistence` 服务与重新导出的 seam 词汇 |
 | [`src/handle.ts`](src/handle.ts) | `SessionHandle` 约定：read/append/flush/close 语义与新鲜度规则 |
+| [`src/appends.ts`](src/appends.ts) | 可选的 `SessionAppends` 伴随定义及其订阅定序约定 |
+| [`src/streams.ts`](src/streams.ts) | 可选的 `SessionStreams` 伴随定义：发布 sink 与实时 frame 订阅 |
 | [`src/storage-contract.ts`](src/storage-contract.ts) | 共享校验：版本门禁、未知事件词汇拒绝、批次实体化、连续性 |
 | [`src/errors.ts`](src/errors.ts) | 稳定的句柄/所有权失败与格式拒绝 |
 | [`src/revision.ts`](src/revision.ts) | 带品牌类型的不透明修订值 token |
@@ -151,6 +157,7 @@ seam 不添加提示词或 schema。恢复会将已存储的表层事件还原�
 - **只有通过句柄获取的会话才会持久化**——仅靠 `ctx.sessions.create` + `session/flush` 不存储任何内容；agent-loop 是生产环境的获取点，测试通过 `create`/`append`/`close` 写入初始存储数据。
 - **无删除或保留接口**——剪枝已存储会话属于带外后端维护。
 - **`list()` 无分页且无过滤**——它返回每个已存储会话的快照；适合本地存储，大规模时无索引。
+- **外部追加只被观察，从不是缓冲写入**——`ctx.sessionAppends` 只报告写入方已使其持久的内容；消费者在读取它要接续的前缀之前先建立订阅，因此两步之间不会有内容漏掉，而重新对齐的订阅可能重放其消费者已见过的事件。
 - **合成 closer 是唯一崩溃方案**——恢复通过写句柄追加 `interruptedTurnClosers`；没有继续中断轮次而不先关闭它的部分轮次恢复。
 
 <a id="dev-note"></a>

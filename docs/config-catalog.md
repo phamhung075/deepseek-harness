@@ -24,6 +24,12 @@ export interface AcpConfig {
   model?: string
   /** Maximum summaries returned by one session/list page. */
   sessionListPageSize?: number
+  /**
+   * Whether this profile publishes each owned Session's live Assistant frames
+   * to the persistence provider's side channel beside the Session artifact.
+   * Defaults to true; a backend that registers no channel is silent either way.
+   */
+  publishAssistantStream?: boolean
   /** Runtime-only transport override; production uses stdio. */
   stream?: Stream
 }
@@ -208,12 +214,18 @@ Requires: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `
 ```ts config-catalog
 /** Session Controller deployment policy. */
 export interface Config {
+  /** Cadence in milliseconds at which stored sessions are re-examined for durable appends by another process. */
+  readonly coldActivityPollMs?: number
+  /** Window in milliseconds after its last durable write in which a session this Host does not run still reports running. */
+  readonly coldActivityIdleMs?: number
+  /** Maximum such sessions observed at once. */
+  readonly coldActivityMaxSessions?: number
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
 }
 ```
 
-Source: [`packages/api/session-controller/src/index.ts:71`](../packages/api/session-controller/src/index.ts)
+Source: [`packages/api/session-controller/src/index.ts:77`](../packages/api/session-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-settings-controller"></a>
 
@@ -1936,13 +1948,28 @@ export interface Config {
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
+  /**
+   * Safety-net poll cadence in milliseconds for the append observer and the
+   * live-frame channel behind `ctx.sessionAppends` and `ctx.sessionStreams`. An
+   * append the platform file watcher reports is observed immediately; this
+   * interval bounds the wait when that watcher is silent or unavailable.
+   * Defaults to 500.
+   */
+  watchPollIntervalMs?: number
+  /**
+   * Maximum live-frame records one publishing Session buffers while a write is
+   * in flight. A frame arriving at the bound is dropped rather than growing
+   * memory without limit; the side channel is presentation data and the durable
+   * settlement remains the replay source. Defaults to 512.
+   */
+  streamPendingRecords?: number
 }
 
 /** Physical encoding selected for JSONL session artifacts. */
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session/session-persistence-jsonl/src/index.ts:88`](../packages/session/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:94`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 

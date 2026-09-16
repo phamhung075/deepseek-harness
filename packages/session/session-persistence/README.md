@@ -39,12 +39,16 @@ With a backend mounted, five service methods address stored sessions:
 const handle = await ctx.sessionPersistence.create(header)     // store a new session, take write ownership
 const handle = await ctx.sessionPersistence.open(id, 'write')  // claim single-writer ownership of an existing session
 const reader = await ctx.sessionPersistence.open(id, 'read')   // observe without ownership
-const snap = await ctx.sessionPersistence.stat(id)             // header + revision (+ eventCount / sizeBytes) without a log read
+const snap = await ctx.sessionPersistence.stat(id)             // header + revision (+ eventCount / sizeBytes / lastModifiedAt) without a log read
 const all = await ctx.sessionPersistence.list()                // one snapshot per visible stored session
 await ctx.sessionPersistence.flush()                           // backend-wide durability barrier over every active write handle
 ```
 
 Service-level `flush()` drains every active write handle's routed events and materializes its session, exactly as each handle's own `flush` would; failures aggregate per session as an `AggregateError` without abandoning the sweep, and a handle closed mid-sweep counts as flushed because close itself drains durably.
+
+A backend may also mount the optional companion capability `ctx.sessionAppends`, whose `watch(id)` returns an owned subscription yielding the logical events that became durable after it resolved. It is the read side a Host needs to notice and stream a session another process is writing, and consumers read it with `ctx.get('sessionAppends')`: a backend that cannot observe another process's artifact does not register it. `stat` and `list` snapshots carry an optional `lastModifiedAt` (artifact modification time in Unix epoch milliseconds) beside `sizeBytes`, so a consumer can tell a recently written artifact from a settled one without reading its log.
+
+The second optional companion, `ctx.sessionStreams`, carries the live Assistant frames a backend can store beside the artifact: `publish(id)` opens an owned sink a publisher appends already-serialized frames to, and `watch(id)` follows one Session's frames the same way `SessionAppends.watch` follows its events. It exists because `agent/assistant-stream` is process-local, so a Host that did not run the Agent sees the text only once the attempt settles in the durable log. Consumers read it with `ctx.get('sessionStreams')`; a backend without a side channel registers no service, and both definitions stay optional so no provider is obliged to implement what it cannot honor.
 
 Every log read and write flows through the returned `SessionHandle`; there are no id-addressed append or load methods. `handle.read(offset?, length?)` returns `{ eventState, events }`: the outer slice belongs to the caller, while `eventState` distinguishes an exclusively `detached` event graph from a `shared-frozen` graph that may also reside in a backend cache. The producer establishes this state and slices preserve it even when empty. Both states are safe to adopt without copying; a consumer that needs mutable events clones them first. Reads never include a torn tail, repeated reads on one handle never observe an older state than a prior read, and a write handle reads its own successful appends. `handle.append(events)` appends a contiguous batch whose first `seq` equals the stored next-seq; persistence is best-effort on resolution — the batch is accepted, ordered, and visible to reads on this backend instance, and only a resolved `flush` promises it survives a crash (the shipped JSONL backend happens to persist each batch immediately). `handle.flush()` is the durability barrier and also materializes an empty created session so it becomes durably listable. `handle.close()` is idempotent and uncancellable: a read handle frees local resources; a write handle completes pending durability and releases write ownership. Once an `append` or `flush` resolves, reads started afterwards on the same backend instance — on any handle, or through `stat`/`list` — observe at least that prefix.
 
@@ -76,7 +80,7 @@ This section explains how the seam realizes durable storage and how backends plu
 
 ### Design concept
 
-The package is a seam, not a backend framework: it exports the abstract `SessionPersistence` service, the `SessionHandle` contract, the stable error classes consumers catch, the pure stored-record validation helpers (`storage-contract`), and the branded revision — nothing else. Each provider owns its complete storage runtime (handle class, mutation ordering, single-writer bookkeeping, live-event routing, teardown), and two shared test suites — `runPersistenceContract` and `runLiveWritePathContract` under `tests/` — pin the observable behavior every provider must agree on. Deliberate consequence: providers may resemble each other where their storage happens to be similar, but no implementation machinery crosses the package boundary.
+The package is a seam, not a backend framework: it exports the abstract `SessionPersistence` service, the optional `SessionAppends` and `SessionStreams` companion definitions, the `SessionHandle` contract, the stable error classes consumers catch, the pure stored-record validation helpers (`storage-contract`), and the branded revision — nothing else. Each provider owns its complete storage runtime (handle class, mutation ordering, single-writer bookkeeping, live-event routing, teardown), and two shared test suites — `runPersistenceContract` and `runLiveWritePathContract` under `tests/` — pin the observable behavior every provider must agree on. Deliberate consequence: providers may resemble each other where their storage happens to be similar, but no implementation machinery crosses the package boundary.
 
 ### The invariants every backend honors
 
@@ -93,6 +97,8 @@ The package is a seam, not a backend framework: it exports the abstract `Session
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: the abstract `SessionPersistence` service and re-exported seam vocabulary |
 | [`src/handle.ts`](src/handle.ts) | The `SessionHandle` contract: read/append/flush/close semantics and freshness rules |
+| [`src/appends.ts`](src/appends.ts) | The optional `SessionAppends` companion definition and its subscription ordering contract |
+| [`src/streams.ts`](src/streams.ts) | The optional `SessionStreams` companion definition: the publishing sink and the live-frame subscription |
 | [`src/storage-contract.ts`](src/storage-contract.ts) | Shared validation: version gate, fail-closed vocabulary, batch materialization, contiguity |
 | [`src/errors.ts`](src/errors.ts) | Stable handle/ownership failures and format refusals |
 | [`src/revision.ts`](src/revision.ts) | The branded opaque revision token |
@@ -151,6 +157,7 @@ These limits define where the seam's guarantees stop. They are current package c
 - **Only handle-acquired sessions persist** — `ctx.sessions.create` + `session/flush` alone stores nothing; agent-loop is the production acquisition point, and tests seed storage through `create`/`append`/`close`.
 - **No deletion or retention API** — pruning stored sessions is out-of-band backend maintenance.
 - **`list()` is unpaginated and unfiltered** — it returns every stored session's snapshot; fine for local stores, unindexed at scale.
+- **Foreign appends are observed, never buffered writes** — `ctx.sessionAppends` reports only what a writer has made durable; a consumer opens its subscription before the prefix read it continues from so nothing falls between the two, and a re-aligned subscription may replay events its consumer already saw.
 - **Synthetic closers are the only crash story** — resume appends `interruptedTurnClosers` through the write handle; there is no partial-turn resume that continues an interrupted turn instead of closing it.
 
 <a id="dev-note"></a>

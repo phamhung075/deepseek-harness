@@ -1070,14 +1070,15 @@ Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/sess
 
 #### `api-session/status` — emit
 
-One Agent changed running state.
+One Session changed running state: an Agent this Host runs, or a stored Session whose durable appends another process is still writing.
 
 ```ts cordis-catalog
 /**
- * One Agent changed running state.
+ * One Session changed running state: an Agent this Host runs, or a stored
+ * Session whose durable appends another process is still writing.
  * @mode emit
  * @param sessionId - Agent and Session identity.
- * @param running - whether the Agent is running.
+ * @param running - whether the Session is running.
  */
 'api-session/status'(sessionId: SessionId, running: boolean): void
 ```

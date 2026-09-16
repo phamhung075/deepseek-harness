@@ -1441,6 +1441,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionAppends',
+    summary: 'Durable-append observation over stored sessions.',
+    description: 'Durable-append observation over stored sessions.\n\nA subscription reports appends, never the prefix already durable when it opened: a caller that must continue from a stored read opens the subscription FIRST and reads the prefix afterwards, so events durable between the two steps arrive on the stream and the caller\'s own cursor decides which of them its reader has already consumed. A torn or incomplete trailing record is withheld until the bytes completing it land, and a backend that loses its place (a repair truncating the artifact, a rewritten file) may replay events the consumer already saw rather than leave a hole; every consumer therefore tolerates an event at or below its cursor.\n\nPresence is deployment-shaped: a backend that cannot observe foreign appends does not register this service, and a consumer reads it with `ctx.get(\'sessionAppends\')`, never `ctx.sessionAppends`.',
+    methods: [
+      {
+        signature: 'abstract watch(id: SessionId, options?: SessionAppendsWatchOptions): Promise<SessionAppendSubscription>',
+        description: 'Follow one stored session\'s durable appends.',
+        parameters: [{ name: 'id', description: 'the stored session to follow.' }, { name: 'options', description: 'optional cancellation of the subscription.' }],
+        returns: 'a subscription that reports every event made durable after this call resolved, until it is closed.',
+        throws: ['{SessionPersistenceNotFoundError} when the session has no stored artifact yet.'],
+      },
+    ],
+  },
+  {
     key: 'sessionController',
     summary: 'Host service backing the generated `ctx.remote.session` namespace.',
     description: 'Host service backing the generated `ctx.remote.session` namespace.',
@@ -1934,6 +1948,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'Session identity whose cwd and preset select the catalog view.' }, { name: 'signal', description: 'caller lifetime carried by the Remote transport; admitted catalog reads retain their existing completion semantics.' }],
         returns: 'user-invocable skill metadata without loading skill bodies.',
         throws: ['RemoteError when the Session cannot be inspected or no registry can serve it.'],
+      },
+    ],
+  },
+  {
+    key: 'sessionStreams',
+    summary: 'Live Assistant-frame observation over stored Sessions.',
+    description: 'Live Assistant-frame observation over stored Sessions.\n\nA subscription reports only frames published after it resolved, so a consumer that must continue from a stored cut opens the subscription FIRST and reads that cut afterwards; a frame published in between arrives on the stream and the consumer\'s own cursor decides whether it already showed it. An incomplete trailing record is withheld until the bytes completing it land, and a backend that loses its place may replay frames a consumer already saw rather than leave a hole, so every consumer tolerates a record at or below its cursor.\n\nPresence is deployment-shaped: a backend that cannot resolve a Session\'s artifact does not register this service, and a consumer reads it with `ctx.get(\'sessionStreams\')` rather than `ctx.sessionStreams`.',
+    methods: [
+      {
+        signature: 'abstract publish(id: SessionId): SessionStreamSink',
+        description: 'Open the publishing channel for one Session\'s live frames. The channel is created on the first published frame, so a Session that has not materialized yet is not an error.',
+        parameters: [{ name: 'id', description: 'the Session whose frames this channel publishes.' }],
+        returns: 'the owned sink.',
+      },
+      {
+        signature: 'abstract watch(id: SessionId, options?: SessionStreamsWatchOptions): Promise<SessionStreamSubscription>',
+        description: 'Follow one stored Session\'s live frames.',
+        parameters: [{ name: 'id', description: 'the stored Session to follow.' }, { name: 'options', description: 'optional cancellation of the subscription.' }],
+        returns: 'the owned subscription.',
+        throws: ['{SessionPersistenceNotFoundError} when the Session has no stored artifact yet.'],
       },
     ],
   },
@@ -3174,9 +3208,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'api-session/status',
     mode: 'emit',
     signature: '\'api-session/status\'(sessionId: SessionId, running: boolean): void',
-    summary: 'One Agent changed running state.',
-    description: 'One Agent changed running state.',
-    parameters: [{ name: 'sessionId', description: 'Agent and Session identity.' }, { name: 'running', description: 'whether the Agent is running.' }],
+    summary: 'One Session changed running state: an Agent this Host runs, or a stored Session whose durable appends another process is still writing.',
+    description: 'One Session changed running state: an Agent this Host runs, or a stored Session whose durable appends another process is still writing.',
+    parameters: [{ name: 'sessionId', description: 'Agent and Session identity.' }, { name: 'running', description: 'whether the Session is running.' }],
   },
   {
     name: 'approval/request',
@@ -5051,6 +5085,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionAddress = {\n    readonly kind: \'session\';\n    readonly sessionId: SessionId;\n} | {\n    readonly kind: \'subagent\';\n    readonly parentSessionId: SessionId;\n    readonly childSessionId: SessionId;\n    readonly mode: \'one-shot\' | \'continuable\';\n};',
   },
   {
+    name: 'SessionAppendSubscription',
+    declaration: 'export interface SessionAppendSubscription extends AsyncDisposable {\n    readonly id: SessionId;\n    readonly events: AsyncIterable<readonly SessionEvent[]>;\n    close(): void;\n}',
+  },
+  {
+    name: 'SessionAppendsWatchOptions',
+    declaration: 'export interface SessionAppendsWatchOptions {\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
     name: 'SessionAssistantStreamAttempt',
     declaration: 'export interface SessionAssistantStreamAttempt {\n    readonly attemptId: LlmAttemptId;\n    readonly startedAfterSeq: SessionSeqCursor;\n    readonly turn: number;\n    readonly step: number;\n    readonly nextIndex: number;\n    readonly stream: readonly JsonValue[];\n}',
   },
@@ -5308,7 +5350,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionPersistenceSnapshot',
-    declaration: 'export interface SessionPersistenceSnapshot {\n    readonly header: SessionHeader;\n    readonly revision: SessionPersistenceRevision;\n    readonly eventCount?: number;\n    readonly sizeBytes?: number;\n}',
+    declaration: 'export interface SessionPersistenceSnapshot {\n    readonly header: SessionHeader;\n    readonly revision: SessionPersistenceRevision;\n    readonly eventCount?: number;\n    readonly sizeBytes?: number;\n    readonly lastModifiedAt?: number;\n}',
   },
   {
     name: 'SessionPersistenceStatOptions',
@@ -5441,6 +5483,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionStorageMetadata',
     declaration: 'export interface SessionStorageMetadata {\n    readonly meta: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n}',
+  },
+  {
+    name: 'SessionStreamRecord',
+    declaration: 'export interface SessionStreamRecord {\n    readonly seq: number;\n    readonly frame: JsonValue;\n}',
+  },
+  {
+    name: 'SessionStreamSink',
+    declaration: 'export interface SessionStreamSink {\n    append(seq: number, frame: JsonValue): void;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'SessionStreamSubscription',
+    declaration: 'export interface SessionStreamSubscription extends AsyncDisposable {\n    readonly id: SessionId;\n    readonly frames: AsyncIterable<readonly SessionStreamRecord[]>;\n    close(): void;\n}',
+  },
+  {
+    name: 'SessionStreamsWatchOptions',
+    declaration: 'export interface SessionStreamsWatchOptions {\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'SessionSummary',

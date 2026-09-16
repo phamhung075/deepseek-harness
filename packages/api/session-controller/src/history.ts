@@ -16,6 +16,12 @@ import type {
   SessionSeqCursor,
 } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+import type {
+  SessionAppends,
+  SessionAppendSubscription,
+  SessionStreams,
+  SessionStreamSubscription,
+} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -36,11 +42,16 @@ import type {
 import { SessionAssistantStreamAccumulator } from './assistant-stream.ts'
 
 const DEFAULT_MAX_MESSAGES = 50
-/** Safety-net cadence for following a session this process does not own; the append observer replaces it. */
-const FOREIGN_SESSION_POLL_MS = 1500
-/** Window after its last durable write in which a session this process does not run still reads as running. */
-const FOREIGN_SESSION_IDLE_MS = 20_000
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
+
+/** One unit a follower queues: a durable event or an opted-in assistant-stream frame. */
+type FollowBufferItem =
+  | { readonly type: 'event'; readonly event: SessionEvent }
+  | {
+    readonly type: 'assistant-stream'
+    readonly frame: SessionAssistantStreamFrame
+    readonly ordinal: number
+  }
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
 export class SessionHistoryController {
@@ -124,14 +135,7 @@ export class SessionHistoryController {
     validateFollowRequest(request)
     const { address } = request
     const target = addressId(address)
-    const buffered = new Deque<
-      | { readonly type: 'event'; readonly event: SessionEvent }
-      | {
-        readonly type: 'assistant-stream'
-        readonly frame: SessionAssistantStreamFrame
-        readonly ordinal: number
-      }
-    >()
+    const buffered = new Deque<FollowBufferItem>()
     let snapshotCursor: SessionSeqCursor | undefined
     let assistantStreamOrdinal = 0
     let wake: (() => void) | undefined
@@ -141,8 +145,6 @@ export class SessionHistoryController {
       resume?.()
     }
     const follower = { closed: false }
-    let pollTimer: ReturnType<typeof setInterval> | undefined
-    let idleTimer: NodeJS.Timeout | undefined
     const close = (): void => {
       follower.closed = true
       notify()
@@ -180,6 +182,32 @@ export class SessionHistoryController {
       }, { global: true })
     const onAbort = (): void => { notify() }
     signal.addEventListener('abort', onAbort, { once: true })
+    // A session another process is running never reaches the in-process bus, so
+    // its appends come from the durable observer. Opening it before the snapshot
+    // read closes the window between the two: an event durable in between is
+    // delivered here and falls at or below the snapshot cursor, where the seq
+    // check below drops it. A composition without the capability opens nothing
+    // and suspends nothing, so the snapshot keeps its original timing.
+    const appends = this.ctx.get('sessionAppends')
+    const durable = appends === undefined || this.ctx.sessions.get(target) !== undefined
+      ? undefined
+      : await this.openDurableFollow(target, appends, signal)
+    const stopDurable = durable === undefined
+      ? undefined
+      : this.pumpDurable(target, durable, buffered, notify)
+    // The side channel is opened here for the same reason as the append
+    // subscription: a frame published between this call and the snapshot read
+    // arrives on the stream, and the ordinal cut below keeps everything the
+    // snapshot already preceded off the wire.
+    const streams = this.ctx.get('sessionStreams')
+    const durableStream = request.assistantStream !== true
+      || streams === undefined
+      || this.ctx.sessions.get(target) !== undefined
+      ? undefined
+      : await this.openDurableStream(target, streams, signal)
+    const stopDurableStream = durableStream === undefined
+      ? undefined
+      : this.pumpDurableStream(target, durableStream, buffered, () => ++assistantStreamOrdinal, notify)
     try {
       using source = await this.sourceFor(address, signal, true)
       const events = source.events
@@ -206,7 +234,13 @@ export class SessionHistoryController {
           : projectionBlock(source.projections),
         ...assistantStream === undefined ? {} : { assistantStream },
       }
-      if (address.kind === 'session' && source.source === 'prepared') {
+      // A session this Host does not run is followed through its durable appends.
+      // Promoting it here would attach it to this process, which makes the Session
+      // list treat the in-process Agent as authoritative and makes the next follow
+      // take the in-process bus, so the row would report idle and the transcript
+      // would freeze while the other process kept working. Activation therefore
+      // stays on demand: prompting resolves the Agent through `resolveAgent`.
+      if (durable === undefined && address.kind === 'session' && source.source === 'prepared') {
         const promotion = source.retain()
         try {
           this.promote(promotion)
@@ -216,48 +250,9 @@ export class SessionHistoryController {
         }
       }
       // A session another process owns publishes nothing on this process's bus,
-      // so its transcript would freeze until the next reload. Poll its durable
-      // log in the meantime: those events are already committed, and the loop
-      // below drops any seq its own cursor has passed.
-      // FIXME(durable-append): the append observer replaces this read loop with
-      // a tail of the bytes the writer added, so a long log is not re-read.
-      let durableCursor = cursor
-      const markRunning = (): void => {
-        this.ctx.emit('api-session/status', target, true)
-        if (idleTimer !== undefined) clearTimeout(idleTimer)
-        // A writer that stops leaves no other signal, so the badge falls back to
-        // idle once its durable writes stop arriving.
-        idleTimer = setTimeout(() => {
-          idleTimer = undefined
-          this.ctx.emit('api-session/status', target, false)
-        }, FOREIGN_SESSION_IDLE_MS)
-      }
-      const poll = (): void => {
-        if (follower.closed || signal.aborted) return
-        void this.sourceFor(address, signal, false).then((observation) => {
-          using owned = observation
-          let observed = false
-          for (const event of owned.events) {
-            if (event.seq <= durableCursor) continue
-            durableCursor = event.seq
-            observed = true
-            buffered.pushBack({ type: 'event', event })
-          }
-          // A durable write is the only evidence that a session this Host does
-          // not run is alive: the Agent status bus never fires for a writer in
-          // another process.
-          // FIXME(durable-append): the durable-activity view owns this signal.
-          if (observed) markRunning()
-          notify()
-        }).catch((error: unknown) => {
-          // The opening read already proved this address exists, so a failed
-          // poll is transient: the next tick re-reads the artifact.
-          this.ctx.logger.debug(`session-controller: durable poll of "${target}" failed: ${String(error)}`)
-        })
-      }
-      if (address.kind === 'session' && this.ctx.sessions.get(target) === undefined) {
-        pollTimer = setInterval(poll, FOREIGN_SESSION_POLL_MS)
-      }
+      // so its transcript would freeze until the next reload. Its durable
+      // appends arrive through the subscription opened above; the loop below
+      // drops any seq its own cursor has passed.
       let nextOffset = SessionLogOffset(cursor + 1)
       while (!follower.closed && !signal.aborted) {
         const item = buffered.popFront()
@@ -280,17 +275,125 @@ export class SessionHistoryController {
         yield entryFor(item.event)
       }
     } finally {
-      if (pollTimer !== undefined) {
-        clearInterval(pollTimer)
-        if (idleTimer !== undefined) clearTimeout(idleTimer)
-        this.ctx.emit('api-session/status', target, false)
-      }
       this.closeFollowers.delete(close)
       signal.removeEventListener('abort', onAbort)
+      stopDurable?.()
+      stopDurableStream?.()
       disposeCreated()
       disposeEvent()
       disposeAssistantStream?.()
     }
+  }
+
+  /**
+   * Subscribe to the durable appends of a session this Host does not run.
+   * @param id - the addressed session.
+   * @param appends - the registered durable-append observer.
+   * @param signal - the follow's cancellation, which also ends the subscription.
+   * @returns the subscription, or `undefined` when the backend refuses this session.
+   */
+  private async openDurableFollow(
+    id: SessionId,
+    appends: SessionAppends,
+    signal: AbortSignal,
+  ): Promise<SessionAppendSubscription | undefined> {
+    try {
+      return await appends.watch(id, { signal })
+    } catch (error: unknown) {
+      // The snapshot read below reports a session that has no artifact at all;
+      // a backend that refuses this one keeps the in-process source.
+      this.ctx.logger.warn(`session-controller: durable follow of "${id}" is unavailable: ${String(error)}`)
+      return undefined
+    }
+  }
+
+  /**
+   * Feed one session's durable appends into a follower's buffer.
+   * @param id - the followed session.
+   * @param subscription - its live durable-append subscription.
+   * @param buffered - the follower's ordered buffer.
+   * @param notify - wakes the follower loop after a batch lands.
+   * @returns the disposer stopping the subscription and its fold.
+   */
+  private pumpDurable(
+    id: SessionId,
+    subscription: SessionAppendSubscription,
+    buffered: Deque<FollowBufferItem>,
+    notify: () => void,
+  ): () => void {
+    const task = (async () => {
+      try {
+        for await (const batch of subscription.events) {
+          for (const event of batch) buffered.pushBack({ type: 'event', event })
+          notify()
+        }
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`session-controller: durable follow of "${id}" failed: ${String(error)}`)
+      }
+    })()
+    return () => { subscription.close(); void task }
+  }
+
+  /**
+   * Subscribe to the live-frame side channel of a session this Host does not run.
+   * @param id - the addressed session.
+   * @param streams - the registered live-frame side channel.
+   * @param signal - the follow's cancellation, which also ends the subscription.
+   * @returns the subscription, or `undefined` when the backend refuses this session.
+   */
+  private async openDurableStream(
+    id: SessionId,
+    streams: SessionStreams,
+    signal: AbortSignal,
+  ): Promise<SessionStreamSubscription | undefined> {
+    try {
+      return await streams.watch(id, { signal })
+    } catch (error: unknown) {
+      // A session with no artifact is reported by the snapshot read; a backend
+      // that refuses this one keeps the committed rows and drops live frames.
+      this.ctx.logger.warn(`session-controller: live-frame follow of "${id}" is unavailable: ${String(error)}`)
+      return undefined
+    }
+  }
+
+  /**
+   * Feed one session's live frames into a follower's buffer.
+   * @param id - the followed session.
+   * @param subscription - its live side-channel subscription.
+   * @param buffered - the follower's ordered buffer.
+   * @param nextOrdinal - allocates the next assistant-stream ordinal.
+   * @param notify - wakes the follower loop after a batch lands.
+   * @returns the disposer stopping the subscription and its fold.
+   */
+  private pumpDurableStream(
+    id: SessionId,
+    subscription: SessionStreamSubscription,
+    buffered: Deque<FollowBufferItem>,
+    nextOrdinal: () => number,
+    notify: () => void,
+  ): () => void {
+    const task = (async () => {
+      try {
+        for await (const batch of subscription.frames) {
+          for (const record of batch) {
+            const frame = channelAssistantStreamFrame(record.frame)
+            if (frame === undefined) {
+              this.ctx.logger.warn(`session-controller: live-frame follow of "${id}" skipped an unreadable frame`)
+              continue
+            }
+            buffered.pushBack({
+              type: 'assistant-stream',
+              frame: wireAssistantStreamFrame(frame, cursorBeforeNext(SessionLogOffset(record.seq))),
+              ordinal: nextOrdinal(),
+            })
+          }
+          notify()
+        }
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`session-controller: live-frame follow of "${id}" failed: ${String(error)}`)
+      }
+    })()
+    return () => { subscription.close(); void task }
   }
 
   private async sourceFor(
@@ -343,6 +446,22 @@ function wireAssistantStreamFrame(
     ...frame,
     chunk: frame.chunk as JsonValue,
   }
+}
+
+/**
+ * Decode one side-channel frame at the file boundary. The channel carries the
+ * loop's frame vocabulary, but bytes written by another process are not
+ * trusted blindly: only the discriminant is checked here, because the client
+ * validates chunk internals and an unknown frame is presentation data that
+ * must not reach the wire.
+ * @param value - one frame value read from the side channel.
+ * @returns the frame, or `undefined` when it is not a stream frame.
+ */
+function channelAssistantStreamFrame(value: JsonValue): AssistantStreamFrame | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const type = (value as { type?: unknown }).type
+  if (type !== 'start' && type !== 'chunk' && type !== 'end') return undefined
+  return value as unknown as AssistantStreamFrame
 }
 
 function projectionBlock(

@@ -19,6 +19,12 @@ import { SessionCommandController } from './commands.ts'
 import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
+import {
+  ColdSessionActivity,
+  DEFAULT_COLD_ACTIVITY_IDLE_MS,
+  DEFAULT_COLD_ACTIVITY_MAX_SESSIONS,
+  DEFAULT_COLD_ACTIVITY_POLL_MS,
+} from './activity.ts'
 import { ApiSessionList } from './list.ts'
 import { buildModelCatalog } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
@@ -69,6 +75,12 @@ declare module '@deepseek-ai/cordis' {
 
 /** Session Controller deployment policy. */
 export interface Config {
+  /** Cadence in milliseconds at which stored sessions are re-examined for durable appends by another process. */
+  readonly coldActivityPollMs?: number
+  /** Window in milliseconds after its last durable write in which a session this Host does not run still reports running. */
+  readonly coldActivityIdleMs?: number
+  /** Maximum such sessions observed at once. */
+  readonly coldActivityMaxSessions?: number
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
 }
@@ -99,6 +111,9 @@ export class SessionController extends TypertRemoteService {
   ]
 
   static Config: z<Config> = z.object({
+    coldActivityPollMs: z.natural().default(DEFAULT_COLD_ACTIVITY_POLL_MS),
+    coldActivityIdleMs: z.natural().default(DEFAULT_COLD_ACTIVITY_IDLE_MS),
+    coldActivityMaxSessions: z.natural().default(DEFAULT_COLD_ACTIVITY_MAX_SESSIONS),
     nativeOpen: z.boolean(),
   })
 
@@ -106,6 +121,7 @@ export class SessionController extends TypertRemoteService {
   private readonly commands: SessionCommandController
   private readonly controlState: SessionControlController
   private readonly history: SessionHistoryController
+  private readonly activity: ColdSessionActivity
   private readonly listState: ApiSessionList
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly revealPath: (path: string, signal: AbortSignal) => Promise<void>
@@ -134,7 +150,12 @@ export class SessionController extends TypertRemoteService {
       await Promise.allSettled([...this.promotions])
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
-    this.listState = new ApiSessionList(ctx)
+    this.activity = new ColdSessionActivity(ctx, {
+      pollIntervalMs: config.coldActivityPollMs ?? DEFAULT_COLD_ACTIVITY_POLL_MS,
+      idleMs: config.coldActivityIdleMs ?? DEFAULT_COLD_ACTIVITY_IDLE_MS,
+      maxSessions: config.coldActivityMaxSessions ?? DEFAULT_COLD_ACTIVITY_MAX_SESSIONS,
+    })
+    this.listState = new ApiSessionList(ctx, this.activity)
     this.openPath = internals.openPath ?? openNativePath
     this.revealPath = internals.revealPath ?? revealNativePath
     this.canOpenPath = internals.canOpenPath

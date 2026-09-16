@@ -37,6 +37,8 @@ The Session object also carries local submission echoes: `session.beginSubmissio
 
 The user-invocable `skills/list` metadata includes the winning provider’s optional instruction-file `path`. The composer can preview that file without loading every skill body or activating a cold Agent.
 
+A stored Session this Host does not hold is reported from its durable appends: the controller observes artifacts written within `coldActivityIdleMs` (up to `coldActivityMaxSessions` at once, re-examined every `coldActivityPollMs`), folds `turn/start` and `turn/end` into an open-turn flag, and pushes `api-session/status` on each transition, so a Session another process is running appears as running and settles when its durable turn closes. Its list row carries that flag, and `follow` streams the appends of such a Session by subscribing to `ctx.sessionAppends` before its opening observation, so a transcript does not freeze at the snapshot. A Session this Host holds is never reported this way: its rows and status come from `ctx.agents`, and its follow uses the in-process event bus. A deployment whose persistence backend registers no `ctx.sessionAppends` cannot report durable activity, which the controller warns about once at the first observation attempt.
+
 <a id="session-media-references"></a>
 ## Session media references
 
@@ -49,6 +51,9 @@ The user-invocable `skills/list` metadata includes the winning provider’s opti
 
 | Field | Default | Meaning |
 |---|---:|---|
+| `coldActivityPollMs` | `5,000` | Cadence at which stored Sessions are re-examined for durable appends by another process |
+| `coldActivityIdleMs` | `60,000` | Window after its last durable write in which a Session this Host does not run still reports running |
+| `coldActivityMaxSessions` | `16` | Maximum such Sessions observed at once |
 | `nativeOpen` | platform-detected | Whether Session workspace paths can be handed to a native desktop opener |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-session-controller) is the exhaustive source for accepted fields and their JSDoc.

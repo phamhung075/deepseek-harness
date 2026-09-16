@@ -88,6 +88,9 @@ export interface TestSessionRemote {
 export interface TestSessionRemoteDefaults {
   readonly defaultModelSelection: () => AgentModelSelection
   readonly cwd: string
+  readonly coldActivityPollMs?: number
+  readonly coldActivityIdleMs?: number
+  readonly coldActivityMaxSessions?: number
   readonly nativeOpen?: boolean
   readonly saveDefaultModelSelection?: (selection: AgentModelSelection) => void | Promise<void>
   readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>
@@ -281,6 +284,11 @@ function installControllers(
     controller = new SessionController(
       ctx,
       {
+        ...defaults.coldActivityPollMs === undefined ? {} : { coldActivityPollMs: defaults.coldActivityPollMs },
+        ...defaults.coldActivityIdleMs === undefined ? {} : { coldActivityIdleMs: defaults.coldActivityIdleMs },
+        ...defaults.coldActivityMaxSessions === undefined
+          ? {}
+          : { coldActivityMaxSessions: defaults.coldActivityMaxSessions },
         ...defaults.nativeOpen === undefined ? {} : { nativeOpen: defaults.nativeOpen },
       },
       {

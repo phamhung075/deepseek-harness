@@ -317,6 +317,13 @@ interface SessionPersistenceSnapshot {
   readonly eventCount?: number
   /** Physical artifact byte size, when the backend can provide it cheaply (JSONL); otherwise absent. */
   readonly sizeBytes?: number
+  /**
+   * Physical artifact modification time in Unix epoch milliseconds, when the
+   * backend can provide it cheaply; otherwise absent. It dates the last durable
+   * write, so a consumer can tell a session another process is still appending
+   * to from one that settled, and it is never derived from in-process state.
+   */
+  readonly lastModifiedAt?: number
 }
 ```
 
@@ -335,6 +342,32 @@ interface SessionPersistenceSnapshot {
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxsessionappends--sessionappends-abstract-seam"></a>
+
+### `ctx.sessionAppends` — `SessionAppends` (abstract seam)
+
+Durable-append observation over stored sessions.
+
+A subscription reports appends, never the prefix already durable when it opened: a caller that must continue from a stored read opens the subscription FIRST and reads the prefix afterwards, so events durable between the two steps arrive on the stream and the caller's own cursor decides which of them its reader has already consumed. A torn or incomplete trailing record is withheld until the bytes completing it land, and a backend that loses its place (a repair truncating the artifact, a rewritten file) may replay events the consumer already saw rather than leave a hole; every consumer therefore tolerates an event at or below its cursor.
+
+Presence is deployment-shaped: a backend that cannot observe foreign appends does not register this service, and a consumer reads it with `ctx.get('sessionAppends')`, never `ctx.sessionAppends`.
+
+```ts cordis-catalog
+/**
+ * Follow one stored session's durable appends.
+ * @param id - the stored session to follow.
+ * @param options - optional cancellation of the subscription.
+ * @returns a subscription that reports every event made durable after this
+ *   call resolved, until it is closed.
+ * @throws {SessionPersistenceNotFoundError} when the session has no stored artifact yet.
+ */
+abstract watch(id: SessionId, options?: SessionAppendsWatchOptions): Promise<SessionAppendSubscription>
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/session/session-persistence/src/appends.ts`](../../packages/session/session-persistence/src/appends.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 
@@ -413,4 +446,38 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
 Types: [SessionId](core.zh.md)
 
 Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
+
+<a id="ctxsessionstreams--sessionstreams-abstract-seam"></a>
+
+### `ctx.sessionStreams` — `SessionStreams` (abstract seam)
+
+Live Assistant-frame observation over stored Sessions.
+
+A subscription reports only frames published after it resolved, so a consumer that must continue from a stored cut opens the subscription FIRST and reads that cut afterwards; a frame published in between arrives on the stream and the consumer's own cursor decides whether it already showed it. An incomplete trailing record is withheld until the bytes completing it land, and a backend that loses its place may replay frames a consumer already saw rather than leave a hole, so every consumer tolerates a record at or below its cursor.
+
+Presence is deployment-shaped: a backend that cannot resolve a Session's artifact does not register this service, and a consumer reads it with `ctx.get('sessionStreams')` rather than `ctx.sessionStreams`.
+
+```ts cordis-catalog
+/**
+ * Open the publishing channel for one Session's live frames. The channel is
+ * created on the first published frame, so a Session that has not
+ * materialized yet is not an error.
+ * @param id - the Session whose frames this channel publishes.
+ * @returns the owned sink.
+ */
+abstract publish(id: SessionId): SessionStreamSink
+
+/**
+ * Follow one stored Session's live frames.
+ * @param id - the stored Session to follow.
+ * @param options - optional cancellation of the subscription.
+ * @returns the owned subscription.
+ * @throws {SessionPersistenceNotFoundError} when the Session has no stored artifact yet.
+ */
+abstract watch(id: SessionId, options?: SessionStreamsWatchOptions): Promise<SessionStreamSubscription>
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/session/session-persistence/src/streams.ts`](../../packages/session/session-persistence/src/streams.ts)
 <!-- END GENERATED cordis-surface -->

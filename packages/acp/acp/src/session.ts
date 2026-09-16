@@ -10,8 +10,9 @@ import {
   type SessionNotification,
   type StopReason,
 } from '@agentclientprotocol/sdk'
-import type { Agent, AgentHandle, AgentOptions, ModelSelection } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions, AssistantStreamFrame, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain, type UserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionStreams, SessionStreamSink } from '@deepseek-ai/dsh-session-persistence'
 import { type Session, type SessionEvent, type SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { AcpContentError, admitAcpPrompt } from './content.ts'
 import { turnEndToStopReason } from './codec.ts'
@@ -33,6 +34,11 @@ interface AcpSessionBuildOptions {
   fallbackSelection: ModelSelection | undefined
   signal: AbortSignal
   notify: (notification: SessionNotification) => Promise<void>
+  /**
+   * Live-frame side channel for this Session, when the persistence provider
+   * offers one and publication is enabled.
+   */
+  streams: SessionStreams | undefined
 }
 
 /** Fresh ACP session construction inputs. */
@@ -99,6 +105,7 @@ export class AcpSession {
   /** The exact top-level Agent owned by this ACP session. */
   readonly agent: Agent
   private readonly modelControl: AcpModelControl
+  private readonly assistantStream: SessionStreamSink | undefined
   private outputTail = Promise.resolve()
   private inflight: InflightPrompt | undefined
   private closing: Promise<void> | undefined
@@ -109,9 +116,11 @@ export class AcpSession {
     handle: AgentHandle,
     modelControl: AcpModelControl,
     private readonly notify: (notification: SessionNotification) => Promise<void>,
+    streams: SessionStreams | undefined,
   ) {
     this.agent = handle.agent
     this.modelControl = modelControl
+    this.assistantStream = streams?.publish(handle.agent.session.id)
     this.disposeAgent = () => handle.dispose()
   }
 
@@ -135,7 +144,7 @@ export class AcpSession {
         await mountAcpMcpServers(agentCtx, options.mcpServers, options.cwd)
       },
     })
-    return new AcpSession(ctx, handle, modelControl, options.notify)
+    return new AcpSession(ctx, handle, modelControl, options.notify, options.streams)
   }
 
   /**
@@ -165,7 +174,7 @@ export class AcpSession {
       throw internalError('session/resume did not compose model selection')
     }
     /* v8 ignore stop */
-    return new AcpSession(ctx, handle, modelControl, options.notify)
+    return new AcpSession(ctx, handle, modelControl, options.notify, options.streams)
   }
 
   /**
@@ -184,6 +193,22 @@ export class AcpSession {
    */
   ownsSession(session: Session): boolean {
     return this.agent.session === session
+  }
+
+  /**
+   * Publish one live Assistant frame to this Session's side channel, so a Host
+   * that did not run this Agent can follow its tokens. A frame arrives only
+   * from the owned Agent, and publication is skipped when no channel exists.
+   * @param frame - the process-local frame the loop emitted for this Session.
+   */
+  publishAssistantFrame(frame: AssistantStreamFrame): void {
+    // The loop's frame vocabulary is JSON, but `JsonValue`'s object member is an
+    // index signature no typed interface satisfies; the channel serializes the
+    // value and re-reads it at its own boundary.
+    this.assistantStream?.append(
+      this.agent.session.seq,
+      frame as unknown as Parameters<SessionStreamSink['append']>[1],
+    )
   }
 
   /**
@@ -455,6 +480,11 @@ export class AcpSession {
         await this.disposeAgent()
       } catch (error: unknown) {
         failures.push(error)
+      }
+      try {
+        await this.assistantStream?.close()
+      } catch (error: unknown) {
+        failures.push(new Error('ACP live-frame channel close failed', { cause: error }))
       }
       this.pendingSelections.clear()
       if (failures.length === 1) throw failures[0]

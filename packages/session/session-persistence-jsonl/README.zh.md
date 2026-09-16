@@ -46,6 +46,8 @@ kind: "package-reference"
 |---|---|---|
 | `root` | 必填 | 所有会话文件的根目录 |
 | `compression` | `'zstd'` | 物理编码：`'zstd'` 带校验和帧，或 `'none'` 换行分隔 UTF-8 文本 |
+| `watchPollIntervalMs` | `500` | `ctx.sessionAppends` 与 `ctx.sessionStreams` 的安全网轮询间隔；被报告到的追加会立即被观察到 |
+| `streamPendingRecords` | `512` | 单个发布会话在写入进行中时缓冲的实时 frame 记录上限；超出上限的 frame 会被丢弃 |
 
 实时事件的写入批处理不是配置：批处理窗口是该 seam 在每个写句柄内部的调度策略。
 
@@ -79,7 +81,15 @@ kind: "package-reference"
 
 ### 读取日志
 
-`open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，只读 open 会单遍解码并迁移源、校验当前逻辑结果，然后在不发布后继的情况下返回。写 open 会在可用时复用按 revision 为键的 preparation，否则执行同一套 preparation，再按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订，并在返回前以不覆盖方式发布当前后继。源保持逐字节不变。如果源在 preparation 后发生变化，该次写 open 会失败，已经返回给读方的逻辑历史不会被替换；后续写 open 会针对新的 revision 重新执行 preparation。后端在 memo 化前冻结已解码的 event graph，并在此时将其标记为 `shared-frozen`；句柄读取和 slice 即使为空也保留该状态。只有尚未实体化的 pending 空日志报告 `detached`。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes` 与尽力而为的 stat 派生修订号。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
+`open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，只读 open 会单遍解码并迁移源、校验当前逻辑结果，然后在不发布后继的情况下返回。写 open 会在可用时复用按 revision 为键的 preparation，否则执行同一套 preparation，再按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订，并在返回前以不覆盖方式发布当前后继。源保持逐字节不变。如果源在 preparation 后发生变化，该次写 open 会失败，已经返回给读方的逻辑历史不会被替换；后续写 open 会针对新的 revision 重新执行 preparation。后端在 memo 化前冻结已解码的 event graph，并在此时将其标记为 `shared-frozen`；句柄读取和 slice 即使为空也保留该状态。只有尚未实体化的 pending 空日志报告 `detached`。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes`、`lastModifiedAt` 与尽力而为的 stat 派生修订号。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
+
+### 观察外部追加
+
+后端还注册 `ctx.sessionAppends`（来自 `src/appends.ts`），即 Session Controller 用来报告并流式读取另一进程正在运行的会话的可选伴随能力。`watch(id)` 把订阅锚定在当前 generation 的持久末尾，并投递此后每次追加所持久化的逻辑事件，且只解码新增字节：在已持有字节偏移之后的完整 Zstandard 帧，以及 `compression: 'none'` 时的完整行；未完成的尾部记录会被扣留，直到补齐它的字节到达（`src/append-tail.ts` 中的 `AppendTailReader` 经由 `src/format.ts` 中锚定的 `AppendedRowDecoder` 解码）。对会话目录的 `fs.watch` 及时报告追加，而 `watchPollIntervalMs`（默认 `500`）在监视器沉默或不可用时限定等待时间。截断产物的修复、被替换的文件，或并非以可解码记录开头的追加，会让读取方从字节 0 重新开始而不是猜测，这可能重放消费者已见过的事件；而重新发出本流已报告过的序号的追加会被丢弃，因此从更短前缀续跑该回合的写入方既不能终止订阅，也不能移动读取位置，只有超出期望序号的追加才会让该流失败。订阅、其监视器、定时器与读取循环会由 `close()` 以及后端拆除（后者等待读取循环落定）释放。
+
+### 发布与读取实时 frame
+
+`ctx.sessionStreams`（来自 `src/streams.ts`）是第二个可选伴随能力：它承载发布方（ACP profile）写到产物旁的进程本地 `agent/assistant-stream` frame，因此未运行该 Agent 的 Host 也能流式显示其文本。该通道是会话目录中的 `<generation stem>.stream.jsonl`——例如 `session.v3.stream.jsonl`——一个由 `{"seq": <下一个持久 seq>, "frame": <frame>}` 记录组成的纯文本 JSONL 文件。没有任何 generation 解析器接受该名称，因此它永远不会被当作持久日志读取，并会随会话目录一起删除。`publish(id)` 返回一个由调用方持有的 sink，其路径在第一个 frame 时解析，因此尚未实体化的会话不是错误；写入在一次进行中的 flush 之后有序排队，并受 `streamPendingRecords` 约束，超出上限的 frame 会被丢弃。首次写入会修复写入方在 frame 中途被杀所留下的不完整尾部记录，因此下一条记录绝不会被拼接到半行之后。`watch(id)` 通过 `StreamTailReader` 尾随完整行，扣留不完整的尾行，在被替换或变短的文件上重启，并与追加观察方共享订阅机制（`src/tail-subscription.ts`）。
 
 -----
 
@@ -106,6 +116,12 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、后端服务类与文件存储原语 |
 | [`src/storage.ts`](src/storage.ts) | JSONL 句柄、已路由实时事件缓冲、进程内写入者记账、监听器、teardown |
 | [`src/format.ts`](src/format.ts) | 日志路径派生、header 编码与当前记录扫描 |
+| [`src/append-tail.ts`](src/append-tail.ts) | 增量追加读取器：在已持有字节偏移之后解码帧/行，并维护期望序号游标 |
+| [`src/appends.ts`](src/appends.ts) | `ctx.sessionAppends` 提供方：监视器、轮询安全网与持有的订阅 |
+| [`src/streams.ts`](src/streams.ts) | `ctx.sessionStreams` 提供方：发布 sink 与实时 frame 订阅 |
+| [`src/stream-channel.ts`](src/stream-channel.ts) | 旁路通道文件：命名、撕裂尾部修复、有界写入方与按行尾随读取方 |
+| [`src/tail-subscription.ts`](src/tail-subscription.ts) | 两个观察方共同驱动的文件尾随订阅 |
+| [`src/tail-reader.ts`](src/tail-reader.ts) | 共享的追加专用文件骨架：锚定、按新增字节读取，以及截断或替换时的重启 |
 | [`src/generation.ts`](src/generation.ts) | 单遍历史还原、有界 stage 编码、源 revision 检查与排他后继发布 |
 | [`src/migration-verifier.ts`](src/migration-verifier.ts) | stage 与竞争 generation 校验的 Worker 生命周期 |
 | [`src/zstd.ts`](src/zstd.ts) | Zstandard 帧压缩、解码与帧扫描 |
@@ -155,6 +171,8 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope �
 
 - **格式迁移保留已配置编码，且只支持 catalog 中的链**——本 build 把受支持的历史代迁移到当前格式；更改压缩需要独立根，保留的旧版本不提供自动 fallback 或 downgrade 支持。
 - **平铺文件存储布局不加载**——加载前使用独立根，或将预发布产物移入项目/会话目录布局。
+- **未对齐的追加会让观察者从字节 0 重新开始**——修复、被替换的产物，或开在被重写帧内部的订阅会重放日志而不是猜测位置，因此消费者必须容忍位于其上或其下的事件。
+- **实时 frame 通道是呈现数据，绝不是回放**——在 `streamPendingRecords` 处被丢弃、或随写入方在行完成前被杀而丢失的 frame 没有修复路径；客户端会从日志嵌入的持久 settlement 重新同步。
 - **压缩文件不能直接按行读取**——使用后端加载；或在写入新根前选择 `compression: 'none'`，供外部行读取方使用。
 - **不删除会话文件**——日志在 `root` 下累积，直到外部移除；seam 无删除接口。
 - **每会话一个活动写入方**——写句柄认领在所属后端实例内排除第二个写入方，内核锁（`session.lock` 上的非阻塞 `flock(2)`；Windows 上为由该路径派生的命名内核信号量，零文件系统足迹）排除其他所有实例与进程；锁在以写模式打开既有产物时立即获取，新建会话则仅在首次实体化写入之前获取，因此未实体化的会话不留任何文件系统足迹。崩溃持有者的锁随其进程消亡，会话立即可再写入，而活着但卡死的持有者会阻塞写入方直到其进程退出（POSIX 上删除锁文件即放弃该排他；释放本身从不删除它）。咨询式 `flock` 在部分网络文件系统（NFSv3）上不可靠，Windows 信号量名按登录会话隔离。

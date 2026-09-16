@@ -47,8 +47,11 @@ kind: "package-reference"
 | `provider` | — | 每个会话 agent 的提供方路由 |
 | `model` | — | 每个会话 agent 的模型 |
 | `sessionListPageSize` | `100` | 单页 `session/list` 返回的最大摘要数量 |
+| `publishAssistantStream` | `true` | 把每个被持有会话的实时 Assistant frame 发布到持久化提供方在该会话产物旁的旁路通道 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-acp)是每个受支持字段及其 JSDoc 的穷尽式真源。
+
+当所挂载的持久化后端注册了可选的 `ctx.sessionStreams` 能力时，每个被持有的会话还会把其实时 Assistant frame 发布到其产物旁，因此并非启动本进程的 Host——跟随委派任务的 Web GUI——可以流式显示该会话的文本，而不必等待每次 settlement。该通道是呈现数据：它不属于 ACP wire，不携带持久日志在 settlement 时未嵌入的任何内容；`publishAssistantStream: false` 或没有旁路通道的后端只是不发布任何内容。
 
 ### 启动服务器
 

@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
+import type { ColdActivityView } from './activity.ts'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
@@ -75,8 +76,14 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
 
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
-  /** @param ctx - Host context carrying Session, query, persistence, and projection services. */
-  constructor(private readonly ctx: Context) {
+  /**
+   * @param ctx - Host context carrying Session, query, persistence, and projection services.
+   * @param activity - durable activity of stored sessions this Host does not run.
+   */
+  constructor(
+    private readonly ctx: Context,
+    private readonly activity: ColdActivityView,
+  ) {
     ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
       stateSchema: sessionListMetadataSchema,
@@ -149,7 +156,9 @@ export class ApiSessionList {
     return {
       sessionId: header.id,
       updatedAt: updatedAt(header, metadata),
-      running: false,
+      // A session another process is running has no Agent here; its durable
+      // appends are the only evidence it is alive.
+      running: this.activity.isRunning(header.id),
       // A large, metadata-less, or inaccessible cache miss remains unknown and visible.
       blank: metadata?.blank ?? false,
       ...listFields(header),
