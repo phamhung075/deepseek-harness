@@ -534,3 +534,75 @@ export function scanLog(buffer: Buffer): SessionLogScan {
   scanner.write(buffer.subarray(headerEnd + 1))
   return scanner.finish()
 }
+
+/**
+ * Decode complete rows appended to an existing current-format log, for a reader
+ * that continues a preserved prefix instead of scanning it. Such a reader
+ * anchors at the artifact's durable end, so it never holds the prefix and cannot
+ * derive the prefix's event count or inherited cut; each row is therefore decoded
+ * as a one-row fragment whose first row establishes its own seq.
+ */
+export class AppendedRowDecoder {
+  private readonly headerValue: Record<string, unknown>
+  /** The header line carries no events, and only the first row can be it. */
+  private firstRow = true
+
+  /**
+   * @param headerRecord - the complete first record of the followed log, including its newline.
+   */
+  constructor(headerRecord: Buffer) {
+    this.headerValue = parseHeaderValue(headerRecord)
+  }
+
+  /**
+   * Decode one complete appended row.
+   * @param line - one stored JSONL record without its trailing newline.
+   * @returns the logical events the row carries, empty for the header row.
+   * @throws when the row is unreadable or is not an admitted current-format row.
+   */
+  decode(line: Buffer): SessionEvent[] {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line.toString('utf8'))
+    } catch {
+      throw new Error('corrupt session log: stored line is not valid JSON')
+    }
+    if (this.firstRow) {
+      this.firstRow = false
+      if (typeof parsed === 'object' && parsed !== null && (parsed as { type?: unknown }).type === 'session') {
+        parseHeaderValue(Buffer.concat([line, Buffer.from([0x0A])]))
+        return []
+      }
+    }
+    assertV3RowAdmission(parsed)
+    const restore = sessionFormatCatalog.createRestore(this.headerValue, {
+      recovery: 'strict',
+      validation: 'transformed',
+      anchor: {},
+    })
+    restore.decodeRow(parsed)
+    return restore.finish().events as unknown as SessionEvent[]
+  }
+}
+
+/** Parse and validate one complete header record into its stored JSON object. */
+function parseHeaderValue(record: Buffer): Record<string, unknown> {
+  if (record.length === 0 || record.at(-1) !== 0x0A || record.indexOf(0x0A) !== record.length - 1) {
+    throw new Error('empty or header-less session log')
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(record.subarray(0, -1).toString('utf8'))
+  } catch {
+    throw new Error('corrupt session log: header line is not valid JSON')
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('corrupt session log: first line is not a JSON object')
+  }
+  refuseForeignFormatVersion(parsed)
+  assertNoRetiredHeaderFields(parsed)
+  if (!isHeaderLine(parsed)) {
+    throw new Error('corrupt session log: first line is not a session header')
+  }
+  return parsed as unknown as Record<string, unknown>
+}
