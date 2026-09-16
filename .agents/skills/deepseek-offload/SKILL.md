@@ -1,0 +1,1 @@
+../../deepseek-offload/.agents/skills/deepseek-offload/SKILL.md

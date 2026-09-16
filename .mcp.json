@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "deepseek": {
+      "command": "node",
+      "args": [
+        "/home/daihu/__projects__/deepseek-harness/.agents/deepseek-offload/.agents/mcp-deepseek/server.cjs"
+      ],
+      "env": {
+        "DEEPSEEK_MCP_DEFAULT_CWD": "/home/daihu/__projects__/deepseek-harness",
+        "DEEPSEEK_WORKSPACE_ATTACH": "1",
+        "DEEPSEEK_MCP_PERMISSION": "allow"
+      }
+    }
+  }
+}

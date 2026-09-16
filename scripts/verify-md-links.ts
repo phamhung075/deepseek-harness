@@ -29,13 +29,28 @@ const PATTERNS = [
 ]
 
 /**
+ * Deployed offload tooling is not repository prose. `.agents/deepseek-offload`
+ * is a submodule and `.agents/skills/deepseek-offload` a symlink into it, so
+ * their documents resolve relative links against the submodule root; read from
+ * here, those same links name paths this repository does not have.
+ * @param path - repository-relative path.
+ * @returns true when the path is offload tooling rather than repository prose.
+ */
+function isOffloadToolingPath(path: string): boolean {
+  const normalized = path.replaceAll('\\', '/')
+  return normalized.startsWith('.agents/deepseek-offload/')
+    || normalized.startsWith('.agents/skills/deepseek-offload/')
+}
+
+/**
  * Discover authored Markdown sources, deduplicating symlinks.
  * Archived notes are excluded as sources, but links to them remain checked.
  * @param scanRoot - absolute repository root; pass the same root to findViolations for matching diagnostics.
  * @returns forward-slash source paths relative to scanRoot.
  */
 export function markdownLinkSourcePaths(scanRoot: string = root): string[] {
-  return uniqueRepoFiles(scanRoot, PATTERNS, isArchivedAgentNotePath)
+  const excluded = (path: string): boolean => isArchivedAgentNotePath(path) || isOffloadToolingPath(path)
+  return uniqueRepoFiles(scanRoot, PATTERNS, excluded)
     .map(file => relative(scanRoot, file.abs).replaceAll('\\', '/'))
 }
 

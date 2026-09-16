@@ -60,6 +60,16 @@ describe('Markdown source discovery', () => {
       join('packages', 'core', 'probe', 'README.md'),
     ])
   })
+
+  it('drops deployed offload Markdown while keeping a sibling skill', () => {
+    const root = layout({
+      '.agents/deepseek-offload/.agents/skills/deepseek-offload/SKILL.md': '[package root](../INSTALL.md)\n',
+      '.agents/skills/deepseek-offload/SKILL.md': '[bridge](../../mcp-deepseek/README.md)\n',
+      '.agents/skills/deepseek-offload/references/inner.md': '[missing](missing.md)\n',
+      '.agents/skills/other/SKILL.md': '[missing](missing.md)\n',
+    })
+    expect(markdownLinkSourcePaths(root)).toEqual(['.agents/skills/other/SKILL.md'])
+  })
 })
 
 describe('documentAnchors', () => {
