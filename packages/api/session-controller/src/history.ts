@@ -36,6 +36,8 @@ import type {
 import { SessionAssistantStreamAccumulator } from './assistant-stream.ts'
 
 const DEFAULT_MAX_MESSAGES = 50
+/** Safety-net cadence for following a session this process does not own; the append observer replaces it. */
+const FOREIGN_SESSION_POLL_MS = 1500
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
@@ -137,6 +139,7 @@ export class SessionHistoryController {
       resume?.()
     }
     const follower = { closed: false }
+    let pollTimer: ReturnType<typeof setInterval> | undefined
     const close = (): void => {
       follower.closed = true
       notify()
@@ -209,6 +212,32 @@ export class SessionHistoryController {
           throw error
         }
       }
+      // A session another process owns publishes nothing on this process's bus,
+      // so its transcript would freeze until the next reload. Poll its durable
+      // log in the meantime: those events are already committed, and the loop
+      // below drops any seq its own cursor has passed.
+      // FIXME(durable-append): the append observer replaces this read loop with
+      // a tail of the bytes the writer added, so a long log is not re-read.
+      let durableCursor = cursor
+      const poll = (): void => {
+        if (follower.closed || signal.aborted) return
+        void this.sourceFor(address, signal, false).then((observation) => {
+          using owned = observation
+          for (const event of owned.events) {
+            if (event.seq <= durableCursor) continue
+            durableCursor = event.seq
+            buffered.pushBack({ type: 'event', event })
+          }
+          notify()
+        }).catch((error: unknown) => {
+          // The opening read already proved this address exists, so a failed
+          // poll is transient: the next tick re-reads the artifact.
+          this.ctx.logger.debug(`session-controller: durable poll of "${target}" failed: ${String(error)}`)
+        })
+      }
+      if (address.kind === 'session' && this.ctx.sessions.get(target) === undefined) {
+        pollTimer = setInterval(poll, FOREIGN_SESSION_POLL_MS)
+      }
       let nextOffset = SessionLogOffset(cursor + 1)
       while (!follower.closed && !signal.aborted) {
         const item = buffered.popFront()
@@ -231,6 +260,7 @@ export class SessionHistoryController {
         yield entryFor(item.event)
       }
     } finally {
+      if (pollTimer !== undefined) clearInterval(pollTimer)
       this.closeFollowers.delete(close)
       signal.removeEventListener('abort', onAbort)
       disposeCreated()
