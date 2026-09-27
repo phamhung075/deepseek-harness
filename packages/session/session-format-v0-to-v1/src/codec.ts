@@ -209,7 +209,7 @@ function decodeEvent(
       sourceEventSeqs: decodeSeqRanges(record['sourceEventSeqs'], seq),
     } as unknown as SessionFormatEvent
   }
-  return record as unknown as SessionFormatEvent
+  return record as SessionFormatEvent
 }
 
 function decodePackedRun(

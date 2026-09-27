@@ -318,7 +318,7 @@ describe('cold session durable activity', () => {
   it('does not promote a cold session it follows durably', async () => {
     const root = await freshRoot()
     const writer = await mountWriter(root)
-    await seed(writer, 'unpromoted', root, [turnStart(0), userMessage(1), stepEnd(2), turnEnd(3)])
+    await seed(writer, 'unpromoted', root, [turnStart(0), userMessage(1), stepStart(2), stepEnd(3), turnEnd(4)])
 
     const ctx = new Context()
     await ctx.plugin(SessionStore)

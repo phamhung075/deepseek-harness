@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-16-live-assistant-frame-side-channel.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-16-live-assistant-frame-side-channel.md
-2026-09-16-live-assistant-frame-side-channel.md: 784821f940d032c2d7ea906ee84a77c65713f78b
-2026-09-16-live-assistant-frame-side-channel.zh.md: d8f4fdd6394ec03a2611466551c01ef2a8e4001c
+/agent-note-publishing-live-assistant-frames-beside-a-session-artifact:
+  en: 90e199fdf139bda8
+  zh: ddd0fc5f3941668d
+/agent-note-publishing-live-assistant-frames-beside-a-session-artifact/problem:
+  en: fc7ba454cbb49d3e
+  zh: cf219d2ddaa5849c
+/agent-note-publishing-live-assistant-frames-beside-a-session-artifact/decision:
+  en: d23e9fdfa11cb554
+  zh: e7e159b324dd8c09
+/agent-note-publishing-live-assistant-frames-beside-a-session-artifact/alternatives-considered:
+  en: 430ad43cdaf31b75
+  zh: aafab6fea4d634b0
+/agent-note-publishing-live-assistant-frames-beside-a-session-artifact/consequences:
+  en: db6a762a5120d7ae
+  zh: 55c4c99426fcf412
+/agent-note-publishing-live-assistant-frames-beside-a-session-artifact/testing:
+  en: 7ab2f70b1a3b0ee8
+  zh: 83e9c554a945dd91

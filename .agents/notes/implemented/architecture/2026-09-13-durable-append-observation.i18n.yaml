@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-13-durable-append-observation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-13-durable-append-observation.md
-2026-09-13-durable-append-observation.md: 4029a0d88c755d0ecceebba969dcc9bfed0e0839
-2026-09-13-durable-append-observation.zh.md: bdada09b5f85d0e31d0f278946ad624c3f009032
+/agent-note-observing-durable-appends-a-host-did-not-write:
+  en: bb28eef5e46cfd8a
+  zh: b46bb5349502829a
+/agent-note-observing-durable-appends-a-host-did-not-write/problem:
+  en: 63ad960a049b3e09
+  zh: da6e22aad06f8424
+/agent-note-observing-durable-appends-a-host-did-not-write/decision:
+  en: 3ead2cd40686692f
+  zh: e47a62318941ba90
+/agent-note-observing-durable-appends-a-host-did-not-write/alternatives-considered:
+  en: 4790687d914c8258
+  zh: a904bec64a0d03f4
+/agent-note-observing-durable-appends-a-host-did-not-write/consequences:
+  en: 75ac15ceedd54491
+  zh: abc48c4258fca51b
+/agent-note-observing-durable-appends-a-host-did-not-write/testing:
+  en: 09e819fc2e05eb6b
+  zh: b3d39fc4fb1140a0
+/agent-note-observing-durable-appends-a-host-did-not-write/verification:
+  en: 54107632202b5cb0
+  zh: e3223c650fa866b4
