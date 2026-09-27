@@ -79,6 +79,20 @@ function setDelete<T>(target: Set<T>, value: T): void {
   intrinsicReflectApply(intrinsicSetDelete, target, [value])
 }
 
+/**
+ * Remove whitespace through index access and concatenation, which guest code cannot redefine.
+ * @param source - rendered function source.
+ * @returns the source without ASCII whitespace.
+ */
+function withoutWhitespace(source: string): string {
+  let compact = ''
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    if (character !== ' ' && character !== '\n' && character !== '\t' && character !== '\r') compact += character
+  }
+  return compact
+}
+
 /** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = intrinsicObjectGetOwnPropertyDescriptor(prototype, 'constructor')
@@ -87,8 +101,9 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   try {
     return constructor.name === name
       && constructor.prototype === prototype
-      // Engines format native source differently, so collapse whitespace before comparing.
-      && (intrinsicReflectApply(intrinsicFunctionToString, constructor, []) as string).replace(/\s+/gu, ' ') === `function ${name}() { [native code] }`
+      // Engines format native source differently, so compare it without whitespace.
+      && withoutWhitespace(intrinsicReflectApply(intrinsicFunctionToString, constructor, []) as string)
+        === `function${name}(){[nativecode]}`
   } catch {
     return false
   }
