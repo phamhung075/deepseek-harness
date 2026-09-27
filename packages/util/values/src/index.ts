@@ -22,10 +22,24 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   try {
     return constructor.name === name
       && constructor.prototype === prototype
-      && Function.prototype.toString.call(constructor) === `function ${name}() { [native code] }`
+      && isNativeFunctionSource(Function.prototype.toString.call(constructor), name)
   } catch {
     return false
   }
+}
+
+/**
+ * Whether one constructor renders as the engine's native function of that name.
+ * Engines format native source differently: V8 keeps the body inline, while
+ * SpiderMonkey and JavaScriptCore put it on its own indented line. Collapsing
+ * whitespace before comparing keeps the check engine-independent; an exact
+ * inline match would reject every plain object in those engines.
+ * @param source - `Function.prototype.toString` output for the candidate constructor.
+ * @param name - the intrinsic name the source must render.
+ * @returns whether the source is that intrinsic's native rendering.
+ */
+function isNativeFunctionSource(source: string, name: 'Array' | 'Object'): boolean {
+  return source.replace(/\s+/gu, ' ') === `function ${name}() { [native code] }`
 }
 
 /** Whether a candidate is one realm's intrinsic `Object.prototype`. */
