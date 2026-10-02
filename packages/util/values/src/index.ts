@@ -14,7 +14,7 @@ export function assertNever(value: never, context?: string): never {
   throw new Error(`unreachable variant${context ? ` in ${context}` : ''}: ${rendered}`)
 }
 
-/** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
+/** Whether a realm-owned intrinsic prototype has a native constructor matching this engine's representation. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
   const constructor: unknown = descriptor?.value
@@ -22,24 +22,10 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   try {
     return constructor.name === name
       && constructor.prototype === prototype
-      && isNativeFunctionSource(Function.prototype.toString.call(constructor), name)
+      && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(name === 'Array' ? Array : Object)
   } catch {
     return false
   }
-}
-
-/**
- * Whether one constructor renders as the engine's native function of that name.
- * Engines format native source differently: V8 keeps the body inline, while
- * SpiderMonkey and JavaScriptCore put it on its own indented line. Collapsing
- * whitespace before comparing keeps the check engine-independent; an exact
- * inline match would reject every plain object in those engines.
- * @param source - `Function.prototype.toString` output for the candidate constructor.
- * @param name - the intrinsic name the source must render.
- * @returns whether the source is that intrinsic's native rendering.
- */
-function isNativeFunctionSource(source: string, name: 'Array' | 'Object'): boolean {
-  return source.replace(/\s+/gu, ' ') === `function ${name}() { [native code] }`
 }
 
 /** Whether a candidate is one realm's intrinsic `Object.prototype`. */
