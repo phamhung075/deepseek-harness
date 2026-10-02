@@ -6,6 +6,8 @@
 
 /* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */
 
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { getDshRuntimeVersion, loadLayeredEnv, StartupError } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { parseDshArgs } from './args.ts'
@@ -73,6 +75,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
   }
 }
 
-if (import.meta.main) {
+const invokedPath = process.argv[1]
+if (import.meta.main || (invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href)) {
   await runCli()
 }
