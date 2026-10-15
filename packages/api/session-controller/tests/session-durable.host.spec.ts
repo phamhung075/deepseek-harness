@@ -19,7 +19,7 @@ import { SESSION_FORMAT_VERSION, SessionSeq, SessionId } from '@deepseek-ai/dsh-
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import type { SessionEventEntry, SessionFollowFrame, SessionSummary } from '../src/types.ts'
 import { createSessionTestRemote, type TestSessionRemote } from './test-remote.ts'
 import { installSessionReadTestServices } from './test-remote.ts'

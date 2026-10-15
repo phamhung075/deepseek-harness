@@ -85,7 +85,6 @@ export class ColdSessionActivity implements ColdActivityView {
     ctx.effect(() => () => this.stop(), 'session-controller.cold-activity')
     this.timer = setInterval(() => { void this.poll() }, policy.pollIntervalMs)
     this.timer.unref()
-    void this.poll()
   }
 
   /**
