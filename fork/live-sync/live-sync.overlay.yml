@@ -1,0 +1,5 @@
+# Fork overlay: load the live-frame publisher beside the profile's other plugins.
+# Use: pnpm dsh --profile <profile> --patch fork/live-sync/live-sync.overlay.yml
+- insert:
+    - id: fork-live-sync
+      name: './src/index.ts'

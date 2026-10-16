@@ -29,12 +29,6 @@ export interface AcpConfig {
   model?: string
   /** Maximum summaries returned by one session/list page. */
   sessionListPageSize?: number
-  /**
-   * Whether this profile publishes each owned Session's live Assistant frames
-   * to the persistence provider's side channel beside the Session artifact.
-   * Defaults to true; a backend that registers no channel is silent either way.
-   */
-  publishAssistantStream?: boolean
   /** Runtime-only transport override; production uses stdio. */
   stream?: Stream
 }
