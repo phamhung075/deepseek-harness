@@ -7,7 +7,6 @@ Fork-only plugins. They edit no upstream file, so merging `upstream/master` does
 | Plugin | What it does |
 |---|---|
 | [`live-sync`](live-sync/src/index.ts) | Publishes each root Agent's live Assistant frames to `ctx.sessionStreams`, so another Host can follow its tokens. Subagents are skipped unless `publishSubagents: true`. It does nothing when no `sessionStreams` service is registered. |
-
 | [`job-control`](job-control/src/index.ts) | Steers a running root Agent from another process and exposes what it holds. Lines appended to `<session>.control.jsonl` (`{"text": "..."}`) go to `agent.steer(...)` at the next step; lines present at attach time are ignored. After each completed reply it writes `<session>.usage.json` (`totalTokens`, `surfaceTokens`, `nodes`, `logRevision`) from `ctx.tokenMeter`. Needs a source launch (`pnpm dsh`, tsx), because it imports `@deepseek-ai/dsh-llm` at runtime. |
 
 ## Launch with the plugins
