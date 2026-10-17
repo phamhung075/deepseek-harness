@@ -1,0 +1,4 @@
+# Fork overlay: control inbox and usage snapshot for running Agents.
+- insert:
+    - id: fork-job-control
+      name: './src/index.ts'

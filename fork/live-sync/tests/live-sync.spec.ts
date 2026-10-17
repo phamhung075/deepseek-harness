@@ -10,7 +10,7 @@ function fakeAgent(id: string, seq: number, origin?: 'subagent'): Agent {
   return { session: { id, seq, header: { origin } } } as unknown as Agent
 }
 
-async function setup(config: LiveSync.Config = {}, withStreams = true) {
+async function setup(config?: LiveSync.Config, withStreams = true) {
   const ctx = new Context()
   const published: Published[] = []
   const closed: string[] = []
@@ -26,7 +26,7 @@ async function setup(config: LiveSync.Config = {}, withStreams = true) {
     }
     await ctx.plugin(FakeStreams)
   }
-  await ctx.plugin(LiveSync, config)
+  await (config === undefined ? ctx.plugin(LiveSync) : ctx.plugin(LiveSync, config))
   return { ctx, published, closed }
 }
 

@@ -24,7 +24,7 @@ export interface Config {
  * @param ctx - plugin context; `sessionStreams` is optional, and without it the plugin is silent.
  * @param config - plugin configuration.
  */
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context, config: Config = {}): void {
   const sinks = new Map<Agent, SessionStreamSink>()
 
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {

@@ -8,6 +8,8 @@ Fork-only plugins. They edit no upstream file, so merging `upstream/master` does
 |---|---|
 | [`live-sync`](live-sync/src/index.ts) | Publishes each root Agent's live Assistant frames to `ctx.sessionStreams`, so another Host can follow its tokens. Subagents are skipped unless `publishSubagents: true`. It does nothing when no `sessionStreams` service is registered. |
 
+| [`job-control`](job-control/src/index.ts) | Steers a running root Agent from another process and exposes what it holds. Lines appended to `<session>.control.jsonl` (`{"text": "..."}`) go to `agent.steer(...)` at the next step; lines present at attach time are ignored. After each completed reply it writes `<session>.usage.json` (`totalTokens`, `surfaceTokens`, `nodes`, `logRevision`) from `ctx.tokenMeter`. Needs a source launch (`pnpm dsh`, tsx), because it imports `@deepseek-ai/dsh-llm` at runtime. |
+
 ## Launch with the plugins
 
 Plain `dsh` does not load them. Add each plugin's overlay with `--patch`; the flag can repeat.
@@ -17,6 +19,8 @@ pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml
 pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml
 make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml'
 ```
+
+`deepseek-offload`'s bridge adds every `fork/<name>/<name>.overlay.yml` to each ACP child automatically (`DSH_OFFLOAD_FORK_OVERLAYS=0` disables it). Then `node .agents/deepseek-offload/.agents/skills/deepseek-offload/scripts/session-steer.mjs <jobId> "text"` steers a job, and `... <jobId> --usage` prints its usage snapshot.
 
 To check composition without starting the app, add `--dump-config` and look for `fork-live-sync`.
 
