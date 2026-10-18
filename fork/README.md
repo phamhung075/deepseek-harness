@@ -11,17 +11,19 @@ Fork-only plugins. They edit no upstream file, so merging `upstream/master` does
 
 ## Launch with the plugins
 
-Plain `dsh` does not load them. Add each plugin's overlay with `--patch`; the flag can repeat.
+Plain `dsh` does not load them. Add each plugin's overlay with `--patch`; the flag can repeat. Run from the repo root, because overlay paths are relative to it.
 
-```sh
-pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml
-pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml
-make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml'
-```
+| Goal | Command |
+|---|---|
+| Web GUI, both plugins (daily use) | `pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml` |
+| Web GUI while editing the client UI | `make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml'` |
+| Headless ACP child, manual run | `pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml` |
 
-`deepseek-offload`'s bridge adds every `fork/<name>/<name>.overlay.yml` to each ACP child automatically (`DSH_OFFLOAD_FORK_OVERLAYS=0` disables it). Then `node .agents/deepseek-offload/.agents/skills/deepseek-offload/scripts/session-steer.mjs <jobId> "text"` steers a job, and `... <jobId> --usage` prints its usage snapshot.
+- `pnpm dsh web` starts from source (tsx), which `job-control` needs. `make dev-web` runs `build:artifacts` first and rebuilds client bundles on edits, so use it only for client UI work.
+- A GUI that only follows `deepseek-offload` jobs needs `live-sync` alone. `job-control` adds steering and usage snapshots.
+- You normally do not start the ACP child yourself: `deepseek-offload`'s bridge adds every `fork/<name>/<name>.overlay.yml` to each child automatically (`DSH_OFFLOAD_FORK_OVERLAYS=0` disables it). Then `node .agents/deepseek-offload/.agents/skills/deepseek-offload/scripts/session-steer.mjs <jobId> "text"` steers a job, and `... <jobId> --usage` prints its usage snapshot.
 
-To check composition without starting the app, add `--dump-config` and look for `fork-live-sync`.
+To check composition without starting the app, add `--dump-config` and look for `fork-live-sync` and `fork-job-control`.
 
 ## Test and type check
 
