@@ -13,6 +13,16 @@ Fork-only plugins. They edit no upstream file, so merging `upstream/master` does
 
 Plain `dsh` does not load them. Add each plugin's overlay with `--patch`; the flag can repeat. Run from the repo root, because overlay paths are relative to it.
 
+Build the client bundles first, and again after every `git merge` of upstream:
+
+```sh
+pnpm run build:artifacts
+```
+
+Without it the browser shows "Failed to load plugins" and every `client-ui-*` entry waits for `sessions`, because `packages/*/lib/client*.js` is missing or stale. `make dev-web` runs this step itself.
+
+Put `--patch` before app flags such as `--no-open` or `--port`: the launcher passes everything after its first unknown flag to the app, which rejects `--patch`.
+
 Web GUI, both plugins (daily use):
 
 ```sh
