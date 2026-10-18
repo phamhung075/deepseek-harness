@@ -13,11 +13,23 @@ Fork-only plugins. They edit no upstream file, so merging `upstream/master` does
 
 Plain `dsh` does not load them. Add each plugin's overlay with `--patch`; the flag can repeat. Run from the repo root, because overlay paths are relative to it.
 
-| Goal | Command |
-|---|---|
-| Web GUI, both plugins (daily use) | `pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml` |
-| Web GUI while editing the client UI | `make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml'` |
-| Headless ACP child, manual run | `pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml` |
+Web GUI, both plugins (daily use):
+
+```sh
+pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml
+```
+
+Web GUI while editing the client UI:
+
+```sh
+make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml'
+```
+
+Headless ACP child, manual run:
+
+```sh
+pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml
+```
 
 - `pnpm dsh web` starts from source (tsx), which `job-control` needs. `make dev-web` runs `build:artifacts` first and rebuilds client bundles on edits, so use it only for client UI work.
 - A GUI that only follows `deepseek-offload` jobs needs `live-sync` alone. `job-control` adds steering and usage snapshots.
