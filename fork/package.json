@@ -1,0 +1,17 @@
+{
+  "name": "@phamhung075/dsh-fork",
+  "version": "0.1.0",
+  "description": "Fork-only DSH plugins for deepseek-offload: live-sync (live Assistant frames) and job-control (steering inbox, usage snapshot).",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./live-sync": "./live-sync/src/index.ts",
+    "./job-control": "./job-control/src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

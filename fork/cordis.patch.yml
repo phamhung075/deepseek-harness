@@ -1,0 +1,7 @@
+# Bundle layer: mounts every fork plugin. Installed from the web "Add plugin" box with
+#   link:<repo>/fork
+- insert:
+    - id: fork-live-sync
+      name: '@phamhung075/dsh-fork/live-sync'
+    - id: fork-job-control
+      name: '@phamhung075/dsh-fork/job-control'

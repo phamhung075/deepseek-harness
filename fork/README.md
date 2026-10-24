@@ -1,5 +1,7 @@
 # fork/
 
+English | [中文](README.zh.md)
+
 Fork-only plugins. They edit no upstream file, so merging `upstream/master` does not conflict with them. They sit outside the upstream workspace globs (`packages/*/*`), so upstream package gates, lockfile and registries do not apply.
 
 ## Plugins
@@ -7,7 +9,27 @@ Fork-only plugins. They edit no upstream file, so merging `upstream/master` does
 | Plugin | What it does |
 |---|---|
 | [`live-sync`](live-sync/src/index.ts) | Publishes each root Agent's live Assistant frames to `ctx.sessionStreams`, so another Host can follow its tokens. Subagents are skipped unless `publishSubagents: true`. It does nothing when no `sessionStreams` service is registered. |
-| [`job-control`](job-control/src/index.ts) | Steers a running root Agent from another process and exposes what it holds. Lines appended to `<session>.control.jsonl` (`{"text": "..."}`) go to `agent.steer(...)` at the next step; lines present at attach time are ignored. After each completed reply it writes `<session>.usage.json` (`totalTokens`, `surfaceTokens`, `nodes`, `logRevision`) from `ctx.tokenMeter`. Needs a source launch (`pnpm dsh`, tsx), because it imports `@deepseek-ai/dsh-llm` at runtime. |
+| [`job-control`](job-control/src/index.ts) | Steers a running root Agent from another process and exposes what it holds. Lines appended to `<session>.control.jsonl` (`{"text": "..."}`) go to `agent.steer(...)` at the next step; lines present at attach time are ignored. After each completed reply it writes `<session>.usage.json` (`totalTokens`, `surfaceTokens`, `nodes`, `logRevision`) from `ctx.tokenMeter`. Its entry points are `.ts` sources, so it needs a source launch (`pnpm dsh`, tsx). |
+
+## Install as a profile bundle
+
+`fork/` is itself a bundle: [`cordis.patch.yml`](cordis.patch.yml) inserts both plugins, and [`package.json`](package.json) names that patch as `dsh.bundle.patch`. Install it once per profile instead of passing `--patch` on every launch.
+
+In the Web UI open "Add plugin" and enter `link:` followed by this directory. `<repo>` is the absolute path of this checkout:
+
+```text
+link:<repo>/fork
+```
+
+The same from a shell (the `--profile` flag belongs to `plugin`, not to `dsh`):
+
+```sh
+pnpm dsh plugin --profile <name> add link:<repo>/fork
+```
+
+Either path runs `pnpm add` in `~/.dsh/profiles/<name>/`, records the dependency as `link:...`, and appends `@phamhung075/dsh-fork` to `dsh.profile.bundles`. A bundle mounts on every launch of that profile, so afterwards `pnpm dsh` / `pnpm dsh web` load both plugins with no flags. `pnpm dsh --profile <name> --dump-config` lists them as `fork-live-sync` and `fork-job-control`.
+
+A link install reads this directory in place, so edits under `fork/*/src` apply on the next launch; only `package.json` and `cordis.patch.yml` changes need a re-install. The entry points are `.ts` sources, so the bundle runs under the source launch: `pnpm dsh` and `pnpm dsh web` from the repo root.
 
 ## Launch with the plugins
 
@@ -51,7 +73,8 @@ To check composition without starting the app, add `--dump-config` and look for 
 
 ```sh
 pnpm exec vitest run --config fork/vitest.config.ts
-cd fork/live-sync && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/'
+(cd fork/live-sync && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
+(cd fork/job-control && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
 ```
 
 The `grep` hides errors under `vendor/`, which appear because the fork tsconfig has no project references. Only `src/` errors count.
@@ -60,8 +83,9 @@ The `grep` hides errors under `vendor/`, which appear because the fork tsconfig 
 
 1. Create `fork/<name>/src/index.ts` exporting `apply(ctx, config)` (and `Config` if it takes options). Use only `import type` from `@deepseek-ai/*` packages so the plugin needs no `package.json` or workspace entry.
 2. Register listeners with `ctx.on` and cleanup with `ctx.effect`. Do not edit upstream files.
-3. Add `fork/<name>/<name>.overlay.yml` with an `- insert:` entry whose `name` is `./src/index.ts` (resolved relative to the overlay file).
-4. Add tests under `fork/<name>/tests/` and a row in the table above.
+3. Add `fork/<name>/<name>.overlay.yml` with an `- insert:` entry whose `name` is `./src/index.ts` (resolved relative to the overlay file), for the `--patch` route.
+4. Add the same entry, named `@phamhung075/dsh-fork/<name>`, to [`cordis.patch.yml`](cordis.patch.yml), and the matching `"./<name>"` export to [`package.json`](package.json), for the bundle route.
+5. Add tests under `fork/<name>/tests/` and a row in the table above.
 
 ## Still edited in place in upstream files
 
