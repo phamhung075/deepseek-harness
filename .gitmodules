@@ -1,3 +1,0 @@
-[submodule ".agents/deepseek-offload"]
-	path = .agents/deepseek-offload
-	url = https://github.com/phamhung075/deepseek-offload.git

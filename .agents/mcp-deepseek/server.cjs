@@ -1,1 +1,0 @@
-../deepseek-offload/.agents/mcp-deepseek/server.cjs

@@ -65,7 +65,7 @@ pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml --patch fork
 
 - `pnpm dsh web` 从源码（tsx）启动，`job-control` 需要这一点。`make dev-web` 会先运行 `build:artifacts`，并在编辑时重建 client bundle，因此只在进行 client UI 工作时使用它。
 - 只跟随 `deepseek-offload` 作业的 GUI 只需要 `live-sync`。`job-control` 额外提供 steering 与用量快照。
-- 通常不需要自己启动 ACP 子进程：`deepseek-offload` 的 bridge 会把每个 `fork/<name>/<name>.overlay.yml` 自动加到每个子进程上（`DSH_OFFLOAD_FORK_OVERLAYS=0` 可禁用它）。然后用 `node .agents/deepseek-offload/.agents/skills/deepseek-offload/scripts/session-steer.mjs <jobId> "text"` 操控作业，用 `... <jobId> --usage` 打印它的用量快照。
+- 通常不需要自己启动 ACP 子进程：`deepseek-offload` 的 bridge 会把每个 `fork/<name>/<name>.overlay.yml` 自动加到每个子进程上（`DSH_OFFLOAD_FORK_OVERLAYS=0` 可禁用它）。然后用 `dsh-offload update <jobId> "text"` 通过 control inbox 操控作业；`job-control` 会在每次 Assistant 尝试后把 `<会话日志>.usage.json` 写到会话日志旁边。
 
 要在不启动应用的情况下检查组合结果，加上 `--dump-config`，查找 `fork-live-sync` 和 `fork-job-control`。
 

@@ -65,7 +65,7 @@ pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml --patch fork
 
 - `pnpm dsh web` starts from source (tsx), which `job-control` needs. `make dev-web` runs `build:artifacts` first and rebuilds client bundles on edits, so use it only for client UI work.
 - A GUI that only follows `deepseek-offload` jobs needs `live-sync` alone. `job-control` adds steering and usage snapshots.
-- You normally do not start the ACP child yourself: `deepseek-offload`'s bridge adds every `fork/<name>/<name>.overlay.yml` to each child automatically (`DSH_OFFLOAD_FORK_OVERLAYS=0` disables it). Then `node .agents/deepseek-offload/.agents/skills/deepseek-offload/scripts/session-steer.mjs <jobId> "text"` steers a job, and `... <jobId> --usage` prints its usage snapshot.
+- You normally do not start the ACP child yourself: `deepseek-offload`'s bridge adds every `fork/<name>/<name>.overlay.yml` to each child automatically (`DSH_OFFLOAD_FORK_OVERLAYS=0` disables it). Then `dsh-offload update <jobId> "text"` steers a job through the control inbox, and `job-control` rewrites `<session log>.usage.json` beside the session log after each Assistant attempt.
 
 To check composition without starting the app, add `--dump-config` and look for `fork-live-sync` and `fork-job-control`.
 
