@@ -3,5 +3,7 @@
 - insert:
     - id: fork-live-sync
       name: '@phamhung075/dsh-fork/live-sync'
+    - id: fork-live-writer
+      name: '@phamhung075/dsh-fork/live-writer'
     - id: fork-job-control
       name: '@phamhung075/dsh-fork/job-control'

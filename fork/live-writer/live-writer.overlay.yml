@@ -1,0 +1,5 @@
+# Fork overlay: load the live-writer correction beside the profile's other plugins.
+# Use: pnpm dsh --profile <profile> --patch fork/live-writer/live-writer.overlay.yml
+- insert:
+    - id: fork-live-writer
+      name: './src/index.ts'

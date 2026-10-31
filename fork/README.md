@@ -9,11 +9,12 @@ Fork-only plugins. They edit no upstream file, so merging `upstream/master` does
 | Plugin | What it does |
 |---|---|
 | [`live-sync`](live-sync/src/index.ts) | Publishes each root Agent's live Assistant frames to `ctx.sessionStreams`, so another Host can follow its tokens. Subagents are skipped unless `publishSubagents: true`. It does nothing when no `sessionStreams` service is registered. |
+| [`live-writer`](live-writer/src/index.ts) | Presents a Session another process is still writing as it is stored. A cold read cannot tell a live writer from a dead one, so it balances an open turn with synthetic `interruptedTurnClosers`; against a running job that fabricated a stop after every reply and moved the follower's cursor past appends the writer had not made. While the writer's kernel lock is held (`/proc/locks`, Linux), the plugin exposes the stored prefix and its exact cursor instead. It wraps `sessionQuery` after that service resolves and restores it on unload. |
 | [`job-control`](job-control/src/index.ts) | Steers a running root Agent from another process and exposes what it holds. Lines appended to `<session>.control.jsonl` (`{"text": "..."}`) go to `agent.steer(...)` at the next step; lines present at attach time are ignored. After each completed reply it writes `<session>.usage.json` (`totalTokens`, `surfaceTokens`, `nodes`, `logRevision`) from `ctx.tokenMeter`. Its entry points are `.ts` sources, so it needs a source launch (`pnpm dsh`, tsx). |
 
 ## Install as a profile bundle
 
-`fork/` is itself a bundle: [`cordis.patch.yml`](cordis.patch.yml) inserts both plugins, and [`package.json`](package.json) names that patch as `dsh.bundle.patch`. Install it once per profile instead of passing `--patch` on every launch.
+`fork/` is itself a bundle: [`cordis.patch.yml`](cordis.patch.yml) inserts every plugin, and [`package.json`](package.json) names that patch as `dsh.bundle.patch`. Install it once per profile instead of passing `--patch` on every launch.
 
 In the Web UI open "Add plugin" and enter `link:` followed by this directory. `<repo>` is the absolute path of this checkout:
 
@@ -27,7 +28,7 @@ The same from a shell (the `--profile` flag belongs to `plugin`, not to `dsh`):
 pnpm dsh plugin --profile <name> add link:<repo>/fork
 ```
 
-Either path runs `pnpm add` in `~/.dsh/profiles/<name>/`, records the dependency as `link:...`, and appends `@phamhung075/dsh-fork` to `dsh.profile.bundles`. A bundle mounts on every launch of that profile, so afterwards `pnpm dsh` / `pnpm dsh web` load both plugins with no flags. `pnpm dsh --profile <name> --dump-config` lists them as `fork-live-sync` and `fork-job-control`.
+Either path runs `pnpm add` in `~/.dsh/profiles/<name>/`, records the dependency as `link:...`, and appends `@phamhung075/dsh-fork` to `dsh.profile.bundles`. A bundle mounts on every launch of that profile, so afterwards `pnpm dsh` / `pnpm dsh web` load every plugin with no flags. `pnpm dsh --profile <name> --dump-config` lists them as `fork-live-sync`, `fork-live-writer`, and `fork-job-control`.
 
 A link install reads this directory in place, so edits under `fork/*/src` apply on the next launch; only `package.json` and `cordis.patch.yml` changes need a re-install. The entry points are `.ts` sources, so the bundle runs under the source launch: `pnpm dsh` and `pnpm dsh web` from the repo root.
 
@@ -45,16 +46,16 @@ Without it the browser shows "Failed to load plugins" and every `client-ui-*` en
 
 Put `--patch` before app flags such as `--no-open` or `--port`: the launcher passes everything after its first unknown flag to the app, which rejects `--patch`.
 
-Web GUI, both plugins (daily use):
+Web GUI, every plugin (daily use):
 
 ```sh
-pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml
+pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml --patch fork/live-writer/live-writer.overlay.yml --patch fork/job-control/job-control.overlay.yml
 ```
 
 Web GUI while editing the client UI:
 
 ```sh
-make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml --patch fork/job-control/job-control.overlay.yml'
+make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml --patch fork/live-writer/live-writer.overlay.yml --patch fork/job-control/job-control.overlay.yml'
 ```
 
 Headless ACP child, manual run:
@@ -64,16 +65,19 @@ pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml --patch fork
 ```
 
 - `pnpm dsh web` starts from source (tsx), which `job-control` needs. `make dev-web` runs `build:artifacts` first and rebuilds client bundles on edits, so use it only for client UI work.
-- A GUI that only follows `deepseek-offload` jobs needs `live-sync` alone. `job-control` adds steering and usage snapshots.
+- A GUI that only follows `deepseek-offload` jobs needs `live-sync` and `live-writer`. `job-control` adds steering and usage snapshots.
 - You normally do not start the ACP child yourself: `deepseek-offload`'s bridge adds every `fork/<name>/<name>.overlay.yml` to each child automatically (`DSH_OFFLOAD_FORK_OVERLAYS=0` disables it). Then `dsh-offload update <jobId> "text"` steers a job through the control inbox, and `job-control` rewrites `<session log>.usage.json` beside the session log after each Assistant attempt.
 
-To check composition without starting the app, add `--dump-config` and look for `fork-live-sync` and `fork-job-control`.
+To check composition without starting the app, add `--dump-config` and look for `fork-live-sync`, `fork-live-writer`, and `fork-job-control`.
+
+`live-writer` reads the JSONL backend's `<session dir>/session.lock` through `/proc/locks`, so it observes a live writer only on Linux with a readable lock table; elsewhere it answers unknown and the Host keeps its own presentation. It reads the sessions root from `$DSH_HOME/sessions` unless the bundle sets `sessionsRoot`, and it needs no engine package at runtime.
 
 ## Test and type check
 
 ```sh
 pnpm exec vitest run --config fork/vitest.config.ts
 (cd fork/live-sync && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
+(cd fork/live-writer && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
 (cd fork/job-control && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
 ```
 
