@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -51,6 +51,37 @@ async function runConfined(sandbox: LocalSandboxProvider, command: string, polic
 }
 
 describe.skipIf(!bwrapUsable)('sandbox-local: real bwrap confinement', () => {
+  it('a linked worktree commits under workspace-write only when its git directory is an extra root', async () => {
+    // HOME-based: bwrap's ephemeral /tmp would hide a repository kept under /tmp.
+    const base = await tempDir(homedir())
+    const repo = join(base, 'repo')
+    const worktree = join(base, 'worktree')
+    const git = (cwd: string, ...args: string[]) => {
+      const out = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' } })
+      expect(out.status, out.stderr).toBe(0)
+    }
+    mkdirSync(repo)
+    git(repo, 'init', '--quiet', '-b', 'main')
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'seed')
+    git(repo, 'worktree', 'add', '--quiet', '-b', 'job', worktree)
+    const sandbox = await provider()
+    const commit = `cd ${worktree} && GIT_CONFIG_GLOBAL=/dev/null git -c user.name=t -c user.email=t@t commit --allow-empty -q -m job`
+
+    const denied = await runConfined(sandbox, commit, { mode: 'workspace-write', workspaceRoot: worktree })
+    expect(denied.result.status).not.toBe(0)
+    expect(denied.result.stderr.toLowerCase()).toContain('read-only file system')
+
+    const granted = await runConfined(sandbox, commit, { mode: 'workspace-write', workspaceRoot: worktree, extraWritableRoots: [join(repo, '.git')] })
+    expect(granted.result.status, granted.result.stderr).toBe(0)
+  })
+
+  it('a granted root that no longer exists does not stop the command', async () => {
+    const workdir = await tempDir(homedir())
+    const sandbox = await provider()
+    const { result } = await runConfined(sandbox, 'true', { mode: 'workspace-write', workspaceRoot: workdir, extraWritableRoots: [join(workdir, 'gone')] })
+    expect(result.status, result.stderr).toBe(0)
+  })
+
   it('the passing probe selects the bwrap rung naturally — first in the ladder, full enforcement, EROFS dialect', async () => {
     const workdir = await tempDir(tmpdir())
     const sandbox = await provider()

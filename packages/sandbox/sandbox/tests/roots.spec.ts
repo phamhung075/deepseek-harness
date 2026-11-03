@@ -33,6 +33,14 @@ describe('writableRoots', () => {
     expect(writableRoots({ mode: 'read-only', workspaceRoot: process.cwd() })).toEqual([])
   })
 
+  it('an extra root is granted under workspace-write only, canonical, and never under read-only', () => {
+    const extra = mkdtempSync(join(tmpdir(), 'dsh-extra-'))
+    roots.push(extra)
+    const policy = { workspaceRoot: process.cwd(), extraWritableRoots: [extra] }
+    expect(writableRoots({ ...policy, mode: 'workspace-write' })).toContain(realpathSync.native(extra))
+    expect(writableRoots({ ...policy, mode: 'read-only' })).toEqual([])
+  })
+
   it('workspace-write grants the workspace root plus the platform temp areas, canonical and deduplicated', () => {
     const ws = mkdtempSync(join(tmpdir(), 'dsh-ws-'))
     roots.push(ws)
