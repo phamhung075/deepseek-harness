@@ -10,7 +10,8 @@
  * @module @deepseek-ai/dsh/profile-boot
  */
 
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
@@ -86,6 +87,45 @@ const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tre
 
 /** Root config filename inside a profile directory. */
 export const PROFILE_ROOT_FILENAME = 'cordis.yml'
+
+/**
+ * Read a profile root, treating a missing file as no content.
+ * @param file - absolute root config path.
+ * @returns the file's text, or `undefined` when it does not exist.
+ */
+function readProfileRoot(file: string): string | undefined {
+  try {
+    return readFileSync(file, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+/**
+ * Restore a profile's empty root config without ever exposing a partial file.
+ * Every start of a profile comes through here while other processes of the same
+ * profile may be booting: their Include reads this file, and a truncated read
+ * parses to `undefined` and fails their startup. So a root that is already
+ * correct is left alone (no write, no watcher event for running processes), and
+ * a baked or missing one is replaced by a rename from a per-writer temp file.
+ * @param dir - the profile directory.
+ * @throws when the root can be neither read nor replaced.
+ */
+export function writeProfileRoot(dir: string): void {
+  const file = join(dir, PROFILE_ROOT_FILENAME)
+  if (readProfileRoot(file) === PROFILE_ROOT_CONFIG) return
+  const temp = join(dir, `.${PROFILE_ROOT_FILENAME}.${process.pid}.${randomUUID()}.tmp`)
+  try {
+    writeFileSync(temp, PROFILE_ROOT_CONFIG)
+    renameSync(temp, file)
+  } catch (error) {
+    rmSync(temp, { force: true })
+    // Windows refuses a rename over a file another boot holds open; that boot's
+    // writer may have restored the same content, which is all this call needs.
+    if (readProfileRoot(file) !== PROFILE_ROOT_CONFIG) throw error
+  }
+}
 
 /**
  * Replace the named custom profile with a fresh copy of one shipped template.
@@ -177,8 +217,8 @@ export function initializeProfileFromDefault(
 }
 
 /**
- * Load a resolved profile for `name` and (re)write the empty root config. The
- * root is always rewritten: the whole composition is patch layers, and the
+ * Load a resolved profile for `name` and restore the empty root config. The
+ * root is restored on every start: the whole composition is patch layers, and the
  * vendored Loader's tree write-back (a plugin self-disposing persists the
  * current tree) can bake composed rows into this file — which would duplicate
  * every bundle insert on the next boot. The file exists on disk only because
@@ -195,7 +235,7 @@ export function prepareProfile(name: string, userLayer = true, fromDefaultProfil
   if (fromDefaultProfile !== undefined) initializeProfileFromDefault(name, fromDefaultProfile)
   const profile = loadProfile(NAME, name, INSTALL_ANCHOR, undefined, { userLayer })
   reportSkippedBundles(NAME, profile)
-  writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
+  writeProfileRoot(profile.dir)
   return profile
 }
 
@@ -228,7 +268,7 @@ async function composeProfile(
   resolvedProfile?: ResolvedProfileRuntime,
 ): Promise<ComposedProfile> {
   const profile = resolvedProfile?.profile ?? prepareProfile(name, true, fromDefaultProfile)
-  if (resolvedProfile !== undefined) writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
+  if (resolvedProfile !== undefined) writeProfileRoot(profile.dir)
   const resolutionOptions = { installAnchor: resolvedProfile?.installAnchor ?? INSTALL_ANCHOR, profile }
   const resolution = await createRuntimeResolution(resolutionOptions)
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
