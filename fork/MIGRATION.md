@@ -90,9 +90,9 @@ kept small on purpose.
 | `packages/sandbox/sandbox/tests/roots.spec.ts` | `fork/tests/sandbox-roots.spec.ts` | `e6d52902cf` |
 | `packages/sandbox/sandbox-policy/tests/policy.spec.ts` | `fork/tests/sandbox-policy.spec.ts` | `e6d52902cf` |
 | `packages/util/values/tests/index.spec.ts` | `fork/tests/util-values.spec.ts` | `e6d52902cf` |
-| `apps/cli/tests/profile-root.spec.ts` + fixture | `fork/tests/profile-root.spec.ts` + `fork/tests/fixtures/` | `e6d52902cf`… |
-| `packages/api/session-controller/tests/session-{durable,streams}.host.spec.ts` | `fork/tests/session-*.host.spec.ts` | move commit |
-| `packages/session/session-persistence-jsonl/tests/{append-tail,appended-row-decoder,appends,streams}.spec.ts` | `fork/tests/jsonl-*.spec.ts` | move commit |
+| `apps/cli/tests/profile-root.spec.ts` + fixture | `fork/tests/profile-root.spec.ts` + `fork/tests/fixtures/` | `6b98282cfe` |
+| `packages/api/session-controller/tests/session-{durable,streams}.host.spec.ts` | `fork/tests/session-*.host.spec.ts` | `6b98282cfe` |
+| `packages/session/session-persistence-jsonl/tests/{append-tail,appended-row-decoder,appends,streams}.spec.ts` | `fork/tests/jsonl-*.spec.ts` | `6b98282cfe` |
 
 Moved tests import the core sources they exercise with explicit repo-relative
 paths. They run with the same include pattern as the existing fork tests:
