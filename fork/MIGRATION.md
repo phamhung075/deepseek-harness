@@ -12,7 +12,9 @@ Verdicts:
 - **c** — tests, docs, or generated output only; moves with its code, and can
   live under `fork/tests` while the code still needs the core seam.
 - **d** — cannot be done from `fork/`; the missing hook and the smallest
-  upstream patch that would add it are named.
+  upstream patch that would add it are named. The founder decided on
+  2026-11-04 that all 34 stay in core and are re-applied at each pull; they are
+  kept, not open migration work.
 
 The fork's own plugins (`fork/live-sync`, `fork/live-writer`,
 `fork/offload-gui`, `fork/job-control`) are already outside `packages/`, so
@@ -25,7 +27,7 @@ they are not in the table.
 | a | 0 | no remaining core path is movable without a new upstream hook |
 | b | 1 | `workflow-ptc/src/guest-source.ts` is regenerated at the next pull |
 | c | 14 | generated catalog, docs, and the tests that must follow the core seams |
-| d | 34 | core seams listed below; each names its missing hook |
+| d | 34 | kept in core by the 2026-11-04 founder decision; re-applied at each pull |
 
 `git diff --name-only 1517a4dbca..HEAD -- packages apps | wc -l` was 60 before
 the migration commits.
@@ -78,11 +80,19 @@ while the seams stay in core:
 - **Engine-independent source checks** — the whitespace fix keeps tools,
   workflows, and PTC working under the fork's Node/tsx runtime.
 
-## Still in core
+## Kept in core
 
-Everything marked **d** above. Until upstream offers the named hook, each one
-conflicts on pull. The smallest upstream patch for each is the fork diff itself,
-kept small on purpose.
+Everything marked **d** above is kept in core by the 2026-11-04 founder
+decision. Each one conflicts on pull until upstream offers the named hook. The
+smallest upstream patch for each is the fork diff itself, kept small on purpose.
+Follow [UPSTREAM-MERGE.md](UPSTREAM-MERGE.md) for the per-group resolution
+steps, the dry-run result of each pull, and the proof commands.
+
+The 2026-11-04 dry run against upstream `0.2.2-rc.1` (`fcc0ad4621`) met 26
+conflicted files and 43 hunks. Upstream now carries an equivalent
+`additionalWritableRoots` sandbox grant and an atomic profile root; those two
+groups may be retired at the next pull if the proof passes, but until then they
+are still part of the kept 34.
 
 ## Moved files
 
@@ -143,6 +153,8 @@ these changes.
   browser calls, not the rendered client.
 - The production `deepseek-offload` worker advertisement; the proof supplied
   the record because the installed package does not.
-- Upstream merge replay: this branch still sits on `1517a4dbca`; upstream
-  `0.2.2-rc.1` rewrites the session-persistence seam wholesale, so the (d)
-  entries will conflict until the fork is pulled forward.
+- Upstream merge replay: this branch still sits on `1517a4dbca`. The
+  2026-11-04 dry run against `0.2.2-rc.1` (`fcc0ad4621`) found 26 conflicted
+  files and 43 hunks; it was aborted after 2 files, so the merged tree was not
+  built and the fork tests were not run on it. See
+  [UPSTREAM-MERGE.md](UPSTREAM-MERGE.md).
