@@ -82,3 +82,60 @@ while the seams stay in core:
 Everything marked **d** above. Until upstream offers the named hook, each one
 conflicts on pull. The smallest upstream patch for each is the fork diff itself,
 kept small on purpose.
+
+## Moved files
+
+| From | To | Commit |
+|---|---|---|
+| `packages/sandbox/sandbox/tests/roots.spec.ts` | `fork/tests/sandbox-roots.spec.ts` | `e6d52902cf` |
+| `packages/sandbox/sandbox-policy/tests/policy.spec.ts` | `fork/tests/sandbox-policy.spec.ts` | `e6d52902cf` |
+| `packages/util/values/tests/index.spec.ts` | `fork/tests/util-values.spec.ts` | `e6d52902cf` |
+| `apps/cli/tests/profile-root.spec.ts` + fixture | `fork/tests/profile-root.spec.ts` + `fork/tests/fixtures/` | `e6d52902cf`… |
+| `packages/api/session-controller/tests/session-{durable,streams}.host.spec.ts` | `fork/tests/session-*.host.spec.ts` | move commit |
+| `packages/session/session-persistence-jsonl/tests/{append-tail,appended-row-decoder,appends,streams}.spec.ts` | `fork/tests/jsonl-*.spec.ts` | move commit |
+
+Moved tests import the core sources they exercise with explicit repo-relative
+paths. They run with the same include pattern as the existing fork tests:
+`vitest run --config fork/vitest.config.ts` (on this host, a writable
+`fork/.vitest` shim is needed because the shared `node_modules` is read-only).
+
+## Proof on an isolated server (2026-11-04)
+
+Environment: `DSH_HOME=$PWD/.proof/home`, web port 3547, source launch
+`node --import tsx/esm apps/cli/src/bin.ts`, the four fork overlays, a real
+offload job in a scratch linked worktree under `.proof/git-wt`, and a second
+`dsh-offload` worker. All HTTP calls are the same `/api/session/*` RPC the
+browser uses.
+
+| Step | Evidence |
+|---|---|
+| start | job `job-20261104-191629-f1f6`, session `72b391da-…` |
+| silent call running | `session/list` reported `running: true` for that session while its `sleep 45` bash call was the last event |
+| GUI prompt | `session/prompt` returned `accepted: true`; the session tail shows the steered `user message` and a new turn at 18:16:46 |
+| stop | `session/cancel` returned `accepted: true`; the job state became `cancelled` within 2 s |
+| resume | `resume` continued the same session as job `job-20261104-191655-de06`, state `done`, result `DONE 863d3579…` |
+| prompt after stop | third turn `accepted: true`, result `DONE2 a5c1430e…` |
+| sandbox git write | three commits in the linked worktree (`81ffa96`, `863d357`, `a5c1430`); files `proof.txt`, `proof2.txt`, `steered.txt`, `resumed.txt`, `after-resume2*.txt`, clean tree |
+
+The worker advertisement (`$DSH_HOME/offload-workers/<job>.json`, `pid`,
+`socketPath`, `sessionId`) is what `offload-gui` reads. The installed
+`deepseek-offload` 0.3.0 package does not write it, so the proof wrote it for
+each live job. That is a deployment gap in the package, not in `offload-gui`;
+without it the GUI row still reports running from the core activity poll, but
+prompt and cancel take the core path and fail (`session/writer-held`,
+`session/not-found`). A live system that prompts or stops offload rows must run
+a worker that publishes this record.
+
+Checks: `vitest` over `fork/**/tests/**` — 14 files, 96 tests passed;
+`tsx scripts/run-oxlint.ts fork/tests` — clean; repo `typecheck` — see the
+delivery report.
+
+## Not verified
+
+- Prompt and stop from a browser: the proof called the same controller RPC the
+  browser calls, not the rendered client.
+- The production `deepseek-offload` worker advertisement; the proof supplied
+  the record because the installed package does not.
+- Upstream merge replay: this branch still sits on `1517a4dbca`; upstream
+  `0.2.2-rc.1` rewrites the session-persistence seam wholesale, so the (d)
+  entries will conflict until the fork is pulled forward.
