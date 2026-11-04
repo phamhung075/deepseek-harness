@@ -34,7 +34,8 @@ the migration commits.
 |---|---|---|
 | `94217c4efe` | table | 60 |
 | `e6d52902cf` | value, sandbox root, sandbox policy tests | 59 |
-| this commit | follow/stream/tail/profile-start tests | 51 |
+| `6b98282cfe` | follow/stream/tail/profile-start tests | 51 |
+| `e5d91f858f` | restore the two upstream sandbox tests to base content | 49 |
 
 The metric lists deleted paths too. Moving a **new** file (absent in the base)
 out of `packages/` removes it from the diff; moving a **modified** file leaves a
