@@ -1,0 +1,5 @@
+# Fork overlay: announce stored Sessions another process creates.
+# Use: pnpm dsh --profile <profile> --patch fork/session-watch/session-watch.overlay.yml
+- insert:
+    - id: fork-session-watch
+      name: './src/index.ts'

@@ -7,3 +7,5 @@
       name: '@phamhung075/dsh-fork/live-writer'
     - id: fork-job-control
       name: '@phamhung075/dsh-fork/job-control'
+    - id: fork-session-watch
+      name: '@phamhung075/dsh-fork/session-watch'

@@ -11,6 +11,7 @@
 | [`live-sync`](live-sync/src/index.ts) | 把每个根 Agent 的实时 Assistant 帧发布到 `ctx.sessionStreams`，使另一个 Host 能跟随它的 token 流。除非设置 `publishSubagents: true`，否则跳过 subagent。当没有注册 `sessionStreams` 服务时它不做任何事。 |
 | [`live-writer`](live-writer/src/index.ts) | 把另一个进程仍在写入的会话按其存储原样呈现。冷读无法区分存活的写者与已死的写者，于是会用合成的 `interruptedTurnClosers` 闭合未结束的轮次；对运行中的作业而言，这会在每条回复后伪造一次停止，并把跟随者的 cursor 推到写者尚未产生的追加之前。当写者的内核锁仍被持有时（`/proc/locks`，Linux），该插件改为暴露已存储前缀及其精确 cursor。它在 `sessionQuery` 服务解析完成后包装它，并在卸载时还原。 |
 | [`job-control`](job-control/src/index.ts) | 从另一个进程操控运行中的根 Agent，并暴露它持有的内容。追加到 `<session>.control.jsonl` 的行（`{"text": "..."}`）会在下一步进入 `agent.steer(...)`；attach 时已存在的行会被忽略。每次回复完成后，它从 `ctx.tokenMeter` 写出 `<session>.usage.json`（`totalTokens`、`surfaceTokens`、`nodes`、`logRevision`）。它的入口是 `.ts` 源码，因此需要源码启动（`pnpm dsh`、tsx）。 |
+| [`session-watch`](session-watch/src/index.ts) | 把另一个进程新建的已存储会话告知仪表盘：已经列过一次会话的页面无需刷新即可看到新行。它每隔 `pollIntervalMs`（默认 `5000`）重新读取已存储的会话集；对每个新身份发布列表端点会返回的 `api-session/added` 摘要。它需要 `sessionController` 与 `sessionQuery`，缺少它们时不会挂载。 |
 
 ## 作为 profile 组合包安装
 
@@ -28,7 +29,7 @@ link:<repo>/fork
 pnpm dsh plugin --profile <name> add link:<repo>/fork
 ```
 
-两种方式都会在 `~/.dsh/profiles/<name>/` 中运行 `pnpm add`，把依赖记录为 `link:...`，并把 `@phamhung075/dsh-fork` 追加到 `dsh.profile.bundles`。组合包会在该 profile 的每次启动时挂载，因此之后 `pnpm dsh` / `pnpm dsh web` 无需任何 flag 就会加载全部插件。`pnpm dsh --profile <name> --dump-config` 会把它们列为 `fork-live-sync`、`fork-live-writer` 和 `fork-job-control`。
+两种方式都会在 `~/.dsh/profiles/<name>/` 中运行 `pnpm add`，把依赖记录为 `link:...`，并把 `@phamhung075/dsh-fork` 追加到 `dsh.profile.bundles`。组合包会在该 profile 的每次启动时挂载，因此之后 `pnpm dsh` / `pnpm dsh web` 无需任何 flag 就会加载全部插件。`pnpm dsh --profile <name> --dump-config` 会把它们列为 `fork-live-sync`、`fork-live-writer`、`fork-job-control` 和 `fork-session-watch`。
 
 link 安装直接读取本目录，因此 `fork/*/src` 下的改动会在下次启动时生效；只有 `package.json` 和 `cordis.patch.yml` 的改动需要重新安装。入口是 `.ts` 源码，因此该组合包在源码启动下运行：从仓库根目录执行 `pnpm dsh` 和 `pnpm dsh web`。
 
@@ -49,13 +50,13 @@ pnpm run build:artifacts
 Web GUI，全部插件（日常使用）：
 
 ```sh
-pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml --patch fork/live-writer/live-writer.overlay.yml --patch fork/job-control/job-control.overlay.yml
+pnpm dsh web --patch fork/live-sync/live-sync.overlay.yml --patch fork/live-writer/live-writer.overlay.yml --patch fork/job-control/job-control.overlay.yml --patch fork/session-watch/session-watch.overlay.yml
 ```
 
 编辑 client UI 时使用 Web GUI：
 
 ```sh
-make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml --patch fork/live-writer/live-writer.overlay.yml --patch fork/job-control/job-control.overlay.yml'
+make dev-web ARGS='--patch fork/live-sync/live-sync.overlay.yml --patch fork/live-writer/live-writer.overlay.yml --patch fork/job-control/job-control.overlay.yml --patch fork/session-watch/session-watch.overlay.yml'
 ```
 
 无头 ACP 子进程，手动运行：
@@ -65,10 +66,11 @@ pnpm dsh --profile acp --patch fork/live-sync/live-sync.overlay.yml --patch fork
 ```
 
 - `pnpm dsh web` 从源码（tsx）启动，`job-control` 需要这一点。`make dev-web` 会先运行 `build:artifacts`，并在编辑时重建 client bundle，因此只在进行 client UI 工作时使用它。
-- 只跟随 `deepseek-offload` 作业的 GUI 需要 `live-sync` 与 `live-writer`。`job-control` 额外提供 steering 与用量快照。
+- 只跟随 `deepseek-offload` 作业的 GUI 需要 `live-sync`、`live-writer` 与 `session-watch`。`job-control` 额外提供 steering 与用量快照。
+- 当仪表盘打开时有作业由另一个进程启动，`session-watch` 才是关键：没有它，新行只有刷新页面后才出现，因为 controller 只宣告自己 Host 创建的会话。它发布的是列表端点自己的摘要，因此新行携带的标题、工作区、running 标志与投影和刷新后完全一致。它每个周期只做一次 header 列举，只有出现新身份时才做一次完整列表。
 - 通常不需要自己启动 ACP 子进程：`deepseek-offload` 的 bridge 会把每个 `fork/<name>/<name>.overlay.yml` 自动加到每个子进程上（`DSH_OFFLOAD_FORK_OVERLAYS=0` 可禁用它）。然后用 `dsh-offload update <jobId> "text"` 通过 control inbox 操控作业；`job-control` 会在每次 Assistant 尝试后把 `<会话日志>.usage.json` 写到会话日志旁边。
 
-要在不启动应用的情况下检查组合结果，加上 `--dump-config`，查找 `fork-live-sync`、`fork-live-writer` 和 `fork-job-control`。
+要在不启动应用的情况下检查组合结果，加上 `--dump-config`，查找 `fork-live-sync`、`fork-live-writer`、`fork-job-control` 和 `fork-session-watch`。
 
 `live-writer` 通过 `/proc/locks` 读取 JSONL 后端的 `<会话目录>/session.lock`，因此只在 Linux 且锁表可读时才能观察到存活的写者；其他情况下它回答未知，Host 保留自身的呈现。会话根默认为 `$DSH_HOME/sessions`，除非组合包设置了 `sessionsRoot`；它运行时不需要任何引擎包。
 
@@ -79,6 +81,7 @@ pnpm exec vitest run --config fork/vitest.config.ts
 (cd fork/live-sync && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
 (cd fork/live-writer && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
 (cd fork/job-control && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
+(cd fork/session-watch && pnpm exec tsc -p tsconfig.json 2>&1 | grep '^src/')
 ```
 
 `grep` 会隐藏 `vendor/` 下的错误，这些错误出现是因为 fork 的 tsconfig 没有 project reference。只有 `src/` 下的错误才算数。
