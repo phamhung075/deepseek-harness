@@ -130,6 +130,24 @@ describe('fork offload-gui', () => {
     expect((await view.list({})).items[0]?.running).toBe(true)
   })
 
+  it('corrects a core status that disagrees with the worker liveness', async () => {
+    const { ctx, dir } = await setup()
+    const statuses: { id: string; running: boolean }[] = []
+    ctx.on('api-session/status', (id: SessionId, running: boolean) => { statuses.push({ id, running }) })
+    const control = await socket(dir)
+    const file = await workerFile(dir, 'job-1', 's1', control.path)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    ctx.emit('api-session/status', sid('s1'), false)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(statuses.at(-1)).toEqual({ id: 's1', running: true })
+
+    await unlink(file)
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    ctx.emit('api-session/status', sid('s1'), true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(statuses.at(-1)).toEqual({ id: 's1', running: false })
+  })
+
   it('routes prompt and cancel over the socket, and falls through when the worker is gone', async () => {
     const { dir, view } = await setup()
     const control = await socket(dir)

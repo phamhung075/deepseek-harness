@@ -266,16 +266,19 @@ function install(ctx: Context, config: Config): void {
   const refresh = async (): Promise<void> => {
     const next = await readWorkers(registry)
     if (stoppedPolling) return
+    const previous = live
+    // Publish the new map before the stops, so the status listener sees these
+    // Sessions as unowned and does not re-assert them running.
+    live = next
     for (const id of next.keys()) {
-      if (!live.has(id)) emitStatus(id, true)
+      if (!previous.has(id)) emitStatus(id, true)
     }
-    for (const id of live.keys()) {
+    for (const id of previous.keys()) {
       if (!next.has(id)) {
         stopped.add(id)
         emitStatus(id, false)
       }
     }
-    live = next
   }
 
   const poll = async (): Promise<void> => {
@@ -292,8 +295,13 @@ function install(ctx: Context, config: Config): void {
   // Core cold activity derives running from durable writes only. While a worker
   // is alive its `false` is wrong; once a seen worker is gone its `true` is wrong.
   ctx.on('api-session/status', (id: SessionId, running: boolean) => {
-    if (!running && live.has(id)) emitStatus(id, true)
-    else if (running && !live.has(id) && stopped.has(id)) emitStatus(id, false)
+    // Re-assert after the original dispatch, so the corrected value is the one
+    // the Client applies last instead of racing the core event.
+    if (!running && live.has(id)) {
+      queueMicrotask(() => { if (live.has(id)) emitStatus(id, true) })
+    } else if (running && !live.has(id) && stopped.has(id)) {
+      queueMicrotask(() => { if (!live.has(id) && stopped.has(id)) emitStatus(id, false) })
+    }
   })
 
   const originalList = controller.list
