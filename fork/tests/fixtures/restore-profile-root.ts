@@ -2,7 +2,7 @@
 
 import { renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PROFILE_ROOT_FILENAME, writeProfileRoot } from '../../src/profile-boot.ts'
+import { PROFILE_ROOT_FILENAME, writeProfileRoot } from '../../../apps/cli/src/profile-boot.ts'
 
 const [dir, stopAfterMs] = process.argv.slice(2)
 if (dir === undefined || stopAfterMs === undefined) throw new Error('fixture requires dir and stopAfterMs')

@@ -13,8 +13,8 @@ import { SESSION_FORMAT_VERSION, SessionLogOffset, SessionSeq, SessionId } from 
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionAppendSubscription } from '@deepseek-ai/dsh-session-persistence'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { eventLines, logPath } from '../src/format.ts'
-import { compressZstdFrame } from '../src/zstd.ts'
+import { eventLines, logPath } from '../../packages/session/session-persistence-jsonl/src/format.ts'
+import { compressZstdFrame } from '../../packages/session/session-persistence-jsonl/src/zstd.ts'
 
 const CWD = '/proj'
 const POLL_MS = 20
