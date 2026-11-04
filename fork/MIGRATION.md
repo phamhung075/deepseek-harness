@@ -128,8 +128,14 @@ prompt and cancel take the core path and fail (`session/writer-held`,
 a worker that publishes this record.
 
 Checks: `vitest` over `fork/**/tests/**` — 14 files, 96 tests passed;
-`tsx scripts/run-oxlint.ts fork/tests` — clean; repo `typecheck` — see the
-delivery report.
+`vitest` over the two restored upstream sandbox tests — 2 files, 23 tests
+passed; `tsx scripts/run-oxlint.ts fork/tests` — clean; targeted `tsc -p
+--noEmit` for `session-persistence-jsonl`, `session-persistence`,
+`session-controller` (host) and `sandbox` — all exit 0. Full `pnpm run
+typecheck`: host compiler and Host Typert pass; the aggregate checks fail on
+cross-tree types because this worktree's read-only shared `node_modules`
+resolves some `@deepseek-ai/*` imports to the live checkout, not because of
+these changes.
 
 ## Not verified
 
