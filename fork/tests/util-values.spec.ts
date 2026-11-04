@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isJsonValue, snapshotJsonValue } from '../src/index.ts'
+import { isJsonValue, snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 
 /**
  * Render one constructor the way SpiderMonkey and JavaScriptCore do: the native
