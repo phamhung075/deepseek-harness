@@ -1,7 +1,7 @@
 {
   "name": "@phamhung075/dsh-fork",
   "version": "0.1.0",
-  "description": "Fork-only DSH plugins for deepseek-offload: live-sync (live Assistant frames), live-writer (a running Session's stored turn), job-control (steering inbox, usage snapshot), and session-watch (new stored Sessions appear in the dashboard without a reload).",
+  "description": "Fork-only DSH plugins for deepseek-offload: live-sync (live Assistant frames), live-writer (a running Session's stored turn), job-control (steering inbox, usage snapshot), session-watch (new stored Sessions appear in the dashboard without a reload), and offload-gui (running rows, prompt, and stop in the Web GUI).",
   "type": "module",
   "private": true,
   "exports": {
@@ -9,6 +9,7 @@
     "./live-writer": "./live-writer/src/index.ts",
     "./job-control": "./job-control/src/index.ts",
     "./session-watch": "./session-watch/src/index.ts",
+    "./offload-gui": "./offload-gui/src/index.ts",
     "./package.json": "./package.json"
   },
   "dsh": {

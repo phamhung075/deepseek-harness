@@ -1,0 +1,4 @@
+# Fork overlay: a running offload job's row, prompt, and stop in the Web GUI.
+- insert:
+    - id: fork-offload-gui
+      name: './src/index.ts'

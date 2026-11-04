@@ -16,6 +16,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { open, rename, writeFile } from 'node:fs/promises'
 
 /** Plugin configuration. */
@@ -52,23 +53,45 @@ export function siblingPath(artifact: string, extension: string): string | undef
   return undefined
 }
 
+/** One parsed control line: the text to steer and the browser identity when the GUI sent it. */
+export interface ControlRecord {
+  /** Message body submitted to the Agent. */
+  readonly text: string
+  /** Browser request id, echoed onto the durable user message so its optimistic echo retires. */
+  readonly rpcId?: string
+}
+
 /**
  * Parse complete control lines.
  * @param text - complete lines separated by newlines.
- * @returns the non-empty `text` of every well-formed record; malformed lines are skipped.
+ * @returns every well-formed record, in order; malformed lines are skipped.
  */
-export function parseControlLines(text: string): string[] {
-  const out: string[] = []
+export function parseControlRecords(text: string): ControlRecord[] {
+  const out: ControlRecord[] = []
   for (const line of text.split('\n')) {
     if (line.trim() === '') continue
     try {
-      const record = JSON.parse(line) as { text?: unknown }
-      if (typeof record.text === 'string' && record.text !== '') out.push(record.text)
+      const record = JSON.parse(line) as { text?: unknown; rpcId?: unknown }
+      if (typeof record.text === 'string' && record.text !== '') {
+        out.push({
+          text: record.text,
+          ...(typeof record.rpcId === 'string' && record.rpcId !== '' ? { rpcId: record.rpcId } : {}),
+        })
+      }
     } catch {
       // A line a sender wrote badly cannot be steered; the next line is independent.
     }
   }
   return out
+}
+
+/**
+ * Parse complete control lines into their text only.
+ * @param text - complete lines separated by newlines.
+ * @returns the non-empty `text` of every well-formed record; malformed lines are skipped.
+ */
+export function parseControlLines(text: string): string[] {
+  return parseControlRecords(text).map(record => record.text)
 }
 
 /**
@@ -119,8 +142,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       state.partial = text.slice(end + 1)
       if (end < 0) return
       const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
-      for (const line of parseControlLines(text.slice(0, end))) {
-        agent.steer(createUserMessage({ content: [{ type: 'text', text: line }], source: { kind: 'user' } }))
+      for (const record of parseControlRecords(text.slice(0, end))) {
+        const source = (record.rpcId === undefined
+          ? { kind: 'user' }
+          : { kind: 'user', rpcId: record.rpcId }) as MessageSource
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: record.text }], source }))
       }
     } finally {
       await handle.close()

@@ -9,3 +9,5 @@
       name: '@phamhung075/dsh-fork/job-control'
     - id: fork-session-watch
       name: '@phamhung075/dsh-fork/session-watch'
+    - id: fork-offload-gui
+      name: '@phamhung075/dsh-fork/offload-gui'

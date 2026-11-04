@@ -42,6 +42,10 @@ describe('siblingPath / parseControlLines', () => {
   it('skips malformed and empty records', () => {
     expect(JobControl.parseControlLines('{"text":"a"}\n\nnot json\n{"text":""}\n{"id":1}\n{"text":"b"}')).toEqual(['a', 'b'])
   })
+  it('carries the browser request id through the control record', () => {
+    expect(JobControl.parseControlRecords('{"text":"a","rpcId":"r1"}\n{"text":"b"}'))
+      .toEqual([{ text: 'a', rpcId: 'r1' }, { text: 'b' }])
+  })
 })
 
 describe('fork job-control', () => {
@@ -58,6 +62,17 @@ describe('fork job-control', () => {
     expect(message.content[0]?.text).toBe('new one')
     await appendFile(control, 'tial"}\n')
     await vi.waitFor(() => { expect(steered).toHaveLength(2) })
+    ctx.emit('agent/disposed', { agent })
+  })
+
+  it('echoes the browser request id on the steered user message', async () => {
+    const { ctx, artifact, agent, steered } = await setup()
+    const control = join(artifact, '..', 's1.control.jsonl')
+    await (ctx.emit as (n: string, p: unknown) => void).call(ctx, 'agent/created', { agent, source: 'fresh' })
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await appendFile(control, '{"text":"from gui","rpcId":"req-7"}\n')
+    await vi.waitFor(() => { expect(steered).toHaveLength(1) })
+    expect((steered[0] as { source: { rpcId?: string } }).source.rpcId).toBe('req-7')
     ctx.emit('agent/disposed', { agent })
   })
 
