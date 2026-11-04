@@ -24,8 +24,8 @@ they are not in the table.
 |---|---|---|
 | a | 0 | no remaining core path is movable without a new upstream hook |
 | b | 1 | `workflow-ptc/src/guest-source.ts` is regenerated at the next pull |
-| c | 15 | generated catalog follows its code; docs and tests moved to `fork/` |
-| d | 35 | core seams listed below; each names its missing hook |
+| c | 15 | generated catalog follows its code; docs stay with the core seams; moved tests live in `fork/tests` |
+| d | 33 | core seams listed below; each names its missing hook |
 
 `git diff --name-only 1517a4dbca..HEAD -- packages apps | wc -l` was 60 before
 the migration commits.
