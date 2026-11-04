@@ -21,9 +21,6 @@ import { join } from 'node:path'
 
 export const name = 'fork-offload-gui'
 
-/** The Session controller service this plugin augments. */
-export const inject = ['sessionController']
-
 /** Plugin configuration. */
 export interface Config {
   /** Worker registry directory; defaults to `$DSH_HOME/offload-workers`. */
@@ -252,7 +249,7 @@ export async function requestWorker(
  * @param ctx - plugin context carrying the session controller.
  * @param config - registry, cadence, and socket timeout.
  */
-export function apply(ctx: Context, config: Config = {}): void {
+function install(ctx: Context, config: Config): void {
   const controller = ctx.get('sessionController') as ControllerLike | undefined
   if (controller === undefined) return
   const registry = config.workerRegistry ?? workerRegistryPath()
@@ -343,4 +340,15 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (Object.getOwnPropertyDescriptor(controller, 'cancel')?.value === cancel) Reflect.deleteProperty(controller, 'cancel')
     }
   }, 'fork-offload-gui')
+}
+
+/**
+ * Wait for the Session controller the Web Host provides. The ACP child loads
+ * the same fork bundle but has no such service, so this plugin must stay
+ * inactive there instead of holding the whole entry pending.
+ * @param ctx - plugin context.
+ * @param config - registry, cadence, and socket timeout.
+ */
+export function apply(ctx: Context, config: Config = {}): void {
+  ctx.inject(['sessionController'], (scoped) => { install(scoped, config) })
 }
