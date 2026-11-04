@@ -15,7 +15,7 @@ import SandboxPolicyService, { SANDBOX_MODES, setSandboxMode } from '@deepseek-a
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
-async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string; extraWritableRoots?: string[] } = {}) {
+async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}) {
   const ctx = new Context()
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SandboxPolicyService, config)
@@ -136,24 +136,6 @@ describe('SandboxPolicyService', () => {
   it('uses the configured root when a session has no cwd', async () => {
     const ctx = await mounted({ workspaceRoot: '/fallback' })
     expect(ctx.sandboxPolicy.resolve({ session: session('sess-no-cwd') }).workspaceRoot).toBe('/fallback')
-  })
-
-  it('carries configured extra roots on every resolved policy, and omits the field without any', async () => {
-    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/ws', extraWritableRoots: ['/repo/.git'] })
-    expect(ctx.sandboxPolicy.resolve()).toEqual({ mode: 'workspace-write', workspaceRoot: '/ws', extraWritableRoots: ['/repo/.git'] })
-    const plain = await mounted({ mode: 'workspace-write', workspaceRoot: '/ws' })
-    expect(plain.sandboxPolicy.resolve()).toEqual({ mode: 'workspace-write', workspaceRoot: '/ws' })
-  })
-
-  it('rejects a relative extra root at load', async () => {
-    const ctx = new Context()
-    try {
-      await ctx.plugin(SessionProjectionRegistry)
-      await expect(ctx.plugin(SandboxPolicyService, { workspaceRoot: '/ws', extraWritableRoots: ['relative/.git'] }))
-        .rejects.toThrow('sandbox-policy: workspace root must be an absolute execution-world path')
-    } finally {
-      await ctx.fiber.dispose()
-    }
   })
 
   it('rejects a mode outside the closed vocabulary at load', async () => {

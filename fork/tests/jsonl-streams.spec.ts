@@ -15,8 +15,8 @@ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionStreamRecord, SessionStreamSubscription } from '@deepseek-ai/dsh-session-persistence'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { logPath } from '../src/format.ts'
-import { streamChannelPath } from '../src/stream-channel.ts'
+import { logPath } from '../../packages/session/session-persistence-jsonl/src/format.ts'
+import { streamChannelPath } from '../../packages/session/session-persistence-jsonl/src/stream-channel.ts'
 
 const CWD = '/proj'
 const POLL_MS = 20

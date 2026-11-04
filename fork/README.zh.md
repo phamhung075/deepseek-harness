@@ -98,6 +98,6 @@ pnpm exec vitest run --config fork/vitest.config.ts
 
 ## 仍在上游文件中就地修改的部分
 
-jsonl provider 接线、session-controller（`history.ts`、`list.ts`、`index.ts`）、session 格式的 anchored decode 与已发布的 codec，以及 `session-persistence` seam 的导出都尚未抽取。合并时预期在这些位置产生冲突。
+34 个核心文件组（jsonl provider 接线、session-controller、session 格式的 anchored decode 与已发布的 codec、`session-persistence` seam 的导出、sandbox 授权、CLI profile 根目录、原生源码检查）按 2026-11-04 的创始人决定保留在核心中。它们不是待办的迁移工作；每次上游拉取都按 [UPSTREAM-MERGE.md](UPSTREAM-MERGE.md) 重新应用，该文档同时记录试运行的冲突计数和回滚步骤。
 
 合并辅助脚本：`~/.local/bin/dsh-sync-upstream` 会合并 `upstream/master`，在冲突时重新生成生成的文档，并在源码冲突处停止。

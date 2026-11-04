@@ -2,9 +2,9 @@ import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AppendTailReader } from '../src/append-tail.ts'
-import { eventLine, toHeaderLine } from '../src/format.ts'
-import { meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { AppendTailReader } from '../../packages/session/session-persistence-jsonl/src/append-tail.ts'
+import { eventLine, toHeaderLine } from '../../packages/session/session-persistence-jsonl/src/format.ts'
+import { meta, oneTurnLog } from '../../packages/session/session-persistence/tests/contract.ts'
 
 const line = (value: string): string => `${value}\n`
 

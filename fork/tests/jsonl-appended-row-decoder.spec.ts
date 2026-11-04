@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
-import { AppendedRowDecoder, eventLine, toHeaderLine } from '../src/format.ts'
-import { meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { AppendedRowDecoder, eventLine, toHeaderLine } from '../../packages/session/session-persistence-jsonl/src/format.ts'
+import { meta, oneTurnLog } from '../../packages/session/session-persistence/tests/contract.ts'
 
 const header = (id: string): Buffer => Buffer.from(`${JSON.stringify(toHeaderLine(meta(id)))}\n`)
 const rows = (): Buffer[] => oneTurnLog().map(event => Buffer.from(`${eventLine(event)}\n`))

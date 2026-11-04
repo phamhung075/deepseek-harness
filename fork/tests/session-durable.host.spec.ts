@@ -20,10 +20,10 @@ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import type { SessionEventEntry, SessionFollowFrame, SessionSummary } from '../src/types.ts'
-import { createSessionTestRemote, type TestSessionRemote } from './test-remote.ts'
-import { installSessionReadTestServices } from './test-remote.ts'
-import { SessionHistoryController } from '../src/history.ts'
+import type { SessionEventEntry, SessionFollowFrame, SessionSummary } from '../../packages/api/session-controller/src/types.ts'
+import { createSessionTestRemote, type TestSessionRemote } from '../../packages/api/session-controller/tests/test-remote.ts'
+import { installSessionReadTestServices } from '../../packages/api/session-controller/tests/test-remote.ts'
+import { SessionHistoryController } from '../../packages/api/session-controller/src/history.ts'
 
 const POLL_MS = 20
 const IDLE_MS = 30_000

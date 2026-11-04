@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import yaml from 'js-yaml'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PROFILE_ROOT_FILENAME, writeProfileRoot } from '../src/profile-boot.ts'
+import { PROFILE_ROOT_FILENAME, writeProfileRoot } from '../../apps/cli/src/profile-boot.ts'
 
 /** Runs in place of the next `renameSync` when set. */
 const renameHook = vi.hoisted(() => ({ current: undefined as (() => void) | undefined }))

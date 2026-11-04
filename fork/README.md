@@ -98,6 +98,6 @@ The `grep` hides errors under `vendor/`, which appear because the fork tsconfig 
 
 ## Still edited in place in upstream files
 
-The jsonl provider wiring, session-controller (`history.ts`, `list.ts`, `index.ts`), the session-format anchored decode and released codecs, and the `session-persistence` seam exports are not yet extracted. Expect conflicts there on merge.
+The 34 core file groups (jsonl provider wiring, session-controller, the session-format anchored decode and released codecs, the `session-persistence` seam exports, the sandbox grant, the CLI profile root, the native source checks) stay in core by the 2026-11-04 founder decision. They are not open migration work; each pull re-applies them as described in [UPSTREAM-MERGE.md](UPSTREAM-MERGE.md), which also carries the dry-run conflict counts and the rollback steps.
 
 Merge helper: `~/.local/bin/dsh-sync-upstream` merges `upstream/master`, regenerates generated docs on conflict, and stops on source conflicts.
