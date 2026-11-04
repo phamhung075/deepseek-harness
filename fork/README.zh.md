@@ -10,6 +10,7 @@
 |---|---|
 | [`live-sync`](live-sync/src/index.ts) | 把每个根 Agent 的实时 Assistant 帧发布到 `ctx.sessionStreams`，使另一个 Host 能跟随它的 token 流。除非设置 `publishSubagents: true`，否则跳过 subagent。当没有注册 `sessionStreams` 服务时它不做任何事。 |
 | [`live-writer`](live-writer/src/index.ts) | 把另一个进程仍在写入的会话按其存储原样呈现。冷读无法区分存活的写者与已死的写者，于是会用合成的 `interruptedTurnClosers` 闭合未结束的轮次；对运行中的作业而言，这会在每条回复后伪造一次停止，并把跟随者的 cursor 推到写者尚未产生的追加之前。当写者的内核锁仍被持有时（`/proc/locks`，Linux），该插件改为暴露已存储前缀及其精确 cursor。它在 `sessionQuery` 服务解析完成后包装它，并在卸载时还原。 |
+| [`offload-gui`](offload-gui/src/index.ts) | 让 offload 作业的 Session 在 Web GUI 中表现得像手工创建的会话：根据 worker 的存活文件把列表行标记为运行中，把 prompt 和 cancel 路由到 worker socket，并转发浏览器请求 id，使持久消息能撤回输入框回显。 |
 | [`job-control`](job-control/src/index.ts) | 从另一个进程操控运行中的根 Agent，并暴露它持有的内容。追加到 `<session>.control.jsonl` 的行（`{"text": "..."}`）会在下一步进入 `agent.steer(...)`；attach 时已存在的行会被忽略。每次回复完成后，它从 `ctx.tokenMeter` 写出 `<session>.usage.json`（`totalTokens`、`surfaceTokens`、`nodes`、`logRevision`）。它的入口是 `.ts` 源码，因此需要源码启动（`pnpm dsh`、tsx）。 |
 
 ## 作为 profile 组合包安装
@@ -93,6 +94,6 @@ pnpm exec vitest run --config fork/vitest.config.ts
 
 ## 仍在上游文件中就地修改的部分
 
-jsonl provider 接线、session-controller（`history.ts`、`list.ts`、`index.ts`）、session 格式的 anchored decode 与已发布的 codec，以及 `session-persistence` seam 的导出都尚未抽取。合并时预期在这些位置产生冲突。
+34 个核心文件组（jsonl provider 接线、session-controller、session 格式的 anchored decode 与已发布的 codec、`session-persistence` seam 的导出、sandbox 授权、CLI profile 根目录、原生源码检查）按 2026-11-04 的创始人决定保留在核心中。它们不是待办的迁移工作；每次上游拉取都按 [UPSTREAM-MERGE.md](UPSTREAM-MERGE.md) 重新应用，该文档同时记录试运行的冲突计数和回滚步骤。
 
 合并辅助脚本：`~/.local/bin/dsh-sync-upstream` 会合并 `upstream/master`，在冲突时重新生成生成的文档，并在源码冲突处停止。
